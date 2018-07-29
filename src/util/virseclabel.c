@@ -86,7 +86,8 @@ virSecurityDeviceLabelDefNew(const char *model)
 virSecurityDeviceLabelDefPtr
 virSecurityDeviceLabelDefCopy(const virSecurityDeviceLabelDef *src)
 {
-    virSecurityDeviceLabelDefPtr ret;
+    virSecurityDeviceLabelDefPtr tmp;
+    VIR_AUTOPTR(virSecurityDeviceLabelDef) ret = NULL;
 
     if (VIR_ALLOC(ret) < 0)
         return NULL;
@@ -96,11 +97,8 @@ virSecurityDeviceLabelDefCopy(const virSecurityDeviceLabelDef *src)
 
     if (VIR_STRDUP(ret->model, src->model) < 0 ||
         VIR_STRDUP(ret->label, src->label) < 0)
-        goto error;
+        return NULL;
 
-    return ret;
-
- error:
-    virSecurityDeviceLabelDefFree(ret);
-    return NULL;
+    VIR_STEAL_PTR(tmp, ret);
+    return tmp;
 }
