@@ -28,7 +28,6 @@
 #include "internal.h"
 
 #include "virbuffer.h"
-#include "viralloc.h"
 #include "virstorageencryption.h"
 #include "virxml.h"
 #include "virerror.h"
@@ -65,6 +64,8 @@ virStorageEncryptionSecretFree(virStorageEncryptionSecretPtr secret)
     virSecretLookupDefClear(&secret->seclookupdef);
     VIR_FREE(secret);
 }
+
+VIR_DEFINE_AUTOPTR_FUNC(virStorageEncryptionSecret, virStorageEncryptionSecretFree)
 
 void
 virStorageEncryptionFree(virStorageEncryptionPtr enc)

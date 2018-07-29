@@ -27,6 +27,7 @@
 # include "virbuffer.h"
 # include "virsecret.h"
 # include "virutil.h"
+# include "viralloc.h"
 
 # include <libxml/tree.h>
 
@@ -94,5 +95,7 @@ enum {
 };
 
 int virStorageGenerateQcowPassphrase(unsigned char *dest);
+
+VIR_DEFINE_AUTOPTR_FUNC(virStorageEncryption, virStorageEncryptionFree)
 
 #endif /* __VIR_STORAGE_ENCRYPTION_H__ */
