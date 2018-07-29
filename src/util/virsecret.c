@@ -64,29 +64,28 @@ int
 virSecretLookupParseSecret(xmlNodePtr secretnode,
                            virSecretLookupTypeDefPtr def)
 {
-    char *uuid;
-    char *usage;
-    int ret = -1;
+    VIR_AUTOFREE(char *) uuid = NULL;
+    VIR_AUTOFREE(char *) usage = NULL;
 
     uuid = virXMLPropString(secretnode, "uuid");
     usage = virXMLPropString(secretnode, "usage");
     if (uuid == NULL && usage == NULL) {
         virReportError(VIR_ERR_XML_ERROR, "%s",
                        _("missing secret uuid or usage attribute"));
-        goto cleanup;
+        return -1;
     }
 
     if (uuid && usage) {
         virReportError(VIR_ERR_XML_ERROR, "%s",
                        _("either secret uuid or usage expected"));
-        goto cleanup;
+        return -1;
     }
 
     if (uuid) {
         if (virUUIDParse(uuid, def->u.uuid) < 0) {
             virReportError(VIR_ERR_XML_ERROR,
                            _("invalid secret uuid '%s'"), uuid);
-            goto cleanup;
+            return -1;
         }
         def->type = VIR_SECRET_LOOKUP_TYPE_UUID;
     } else {
@@ -94,12 +93,8 @@ virSecretLookupParseSecret(xmlNodePtr secretnode,
         usage = NULL;
         def->type = VIR_SECRET_LOOKUP_TYPE_USAGE;
     }
-    ret = 0;
 
- cleanup:
-    VIR_FREE(uuid);
-    VIR_FREE(usage);
-    return ret;
+    return 0;
 }
 
 
