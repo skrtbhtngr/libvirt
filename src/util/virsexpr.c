@@ -379,8 +379,9 @@ string2sexpr(const char *buffer)
 static struct sexpr *
 sexpr_lookup_key(const struct sexpr *sexpr, const char *node)
 {
-    struct sexpr *result = NULL;
-    char *buffer, *ptr, *token;
+    char *ptr;
+    char *token;
+    VIR_AUTOFREE(char *) buffer = NULL;
 
     if ((node == NULL) || (sexpr == NULL))
         return NULL;
@@ -392,10 +393,10 @@ sexpr_lookup_key(const struct sexpr *sexpr, const char *node)
     token = strsep(&ptr, "/");
 
     if (sexpr->kind != SEXPR_CONS || sexpr->u.s.car->kind != SEXPR_VALUE)
-        goto cleanup;
+        return NULL;
 
     if (STRNEQ(sexpr->u.s.car->u.value, token))
-        goto cleanup;
+        return NULL;
 
     for (token = strsep(&ptr, "/"); token; token = strsep(&ptr, "/")) {
         const struct sexpr *i;
@@ -419,14 +420,9 @@ sexpr_lookup_key(const struct sexpr *sexpr, const char *node)
     }
 
     if (token != NULL)
-        goto cleanup;
+        return NULL;
 
-    result = (struct sexpr *) sexpr;
-
- cleanup:
-    VIR_FREE(buffer);
-
-    return result;
+    return (struct sexpr *) sexpr;
 }
 
 /**
@@ -524,8 +520,7 @@ sexpr_fmt_node(const struct sexpr *sexpr, const char *fmt, ...)
 {
     int result;
     va_list ap;
-    char *node;
-    const char *value;
+    VIR_AUTOFREE(char *) node = NULL;
 
     va_start(ap, fmt);
     result = virVasprintf(&node, fmt, ap);
@@ -534,11 +529,7 @@ sexpr_fmt_node(const struct sexpr *sexpr, const char *fmt, ...)
     if (result < 0)
         return NULL;
 
-    value = sexpr_node(sexpr, node);
-
-    VIR_FREE(node);
-
-    return value;
+    return sexpr_node(sexpr, node);
 }
 
 /**
