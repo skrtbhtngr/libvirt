@@ -22,7 +22,6 @@
 #include <config.h>
 
 #include "internal.h"
-#include "viralloc.h"
 #include "virseclabel.h"
 #include "virstring.h"
 

@@ -22,6 +22,8 @@
 #ifndef __SECLABEL_H
 # define __SECLABEL_H
 
+# include "viralloc.h"
+
 typedef enum {
     VIR_DOMAIN_SECLABEL_DEFAULT,
     VIR_DOMAIN_SECLABEL_NONE,
@@ -67,5 +69,8 @@ virSecurityDeviceLabelDefCopy(const virSecurityDeviceLabelDef *src)
 
 void virSecurityLabelDefFree(virSecurityLabelDefPtr def);
 void virSecurityDeviceLabelDefFree(virSecurityDeviceLabelDefPtr def);
+
+VIR_DEFINE_AUTOPTR_FUNC(virSecurityLabelDef, virSecurityLabelDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virSecurityDeviceLabelDef, virSecurityDeviceLabelDefFree)
 
 #endif /* __SECLABEL_H */
