@@ -224,7 +224,8 @@ virThreadPoolNewFull(size_t minWorkers,
                      const char *funcName,
                      void *opaque)
 {
-    virThreadPoolPtr pool;
+    virThreadPoolPtr tmp = NULL;
+    VIR_AUTOPTR(virThreadPool) pool = NULL;
 
     if (minWorkers > maxWorkers)
         minWorkers = maxWorkers;
@@ -239,33 +240,29 @@ virThreadPoolNewFull(size_t minWorkers,
     pool->jobOpaque = opaque;
 
     if (virMutexInit(&pool->mutex) < 0)
-        goto error;
+        return NULL;
     if (virCondInit(&pool->cond) < 0)
-        goto error;
+        return NULL;
     if (virCondInit(&pool->quit_cond) < 0)
-        goto error;
+        return NULL;
 
     pool->minWorkers = minWorkers;
     pool->maxWorkers = maxWorkers;
     pool->maxPrioWorkers = prioWorkers;
 
     if (virThreadPoolExpand(pool, minWorkers, false) < 0)
-        goto error;
+        return NULL;
 
     if (prioWorkers) {
         if (virCondInit(&pool->prioCond) < 0)
-            goto error;
+            return NULL;
 
         if (virThreadPoolExpand(pool, prioWorkers, true) < 0)
-            goto error;
+            return NULL;
     }
 
-    return pool;
-
- error:
-    virThreadPoolFree(pool);
-    return NULL;
-
+    VIR_STEAL_PTR(tmp, pool);
+    return tmp;
 }
 
 void virThreadPoolFree(virThreadPoolPtr pool)
