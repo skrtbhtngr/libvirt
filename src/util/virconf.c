@@ -643,9 +643,10 @@ static int
 virConfParseStatement(virConfParserCtxtPtr ctxt)
 {
     const char *base;
-    char *name;
+    char *tmp ATTRIBUTE_UNUSED = NULL;
     virConfValuePtr value;
     char *comm = NULL;
+    VIR_AUTOFREE(char *) name = NULL;
 
     SKIP_BLANKS_AND_EOL;
     if (CUR == '#')
@@ -656,33 +657,31 @@ virConfParseStatement(virConfParserCtxtPtr ctxt)
     SKIP_BLANKS;
     if (CUR != '=') {
         virConfError(ctxt, VIR_ERR_CONF_SYNTAX, _("expecting an assignment"));
-        VIR_FREE(name);
         return -1;
     }
     NEXT;
     SKIP_BLANKS;
     value = virConfParseValue(ctxt);
-    if (value == NULL) {
-        VIR_FREE(name);
+    if (value == NULL)
         return -1;
-    }
+
     SKIP_BLANKS;
     if (CUR == '#') {
         NEXT;
         base = ctxt->cur;
         while ((ctxt->cur < ctxt->end) && (!IS_EOL(CUR))) NEXT;
         if (VIR_STRNDUP(comm, base, ctxt->cur - base) < 0) {
-            VIR_FREE(name);
             virConfFreeValue(value);
             return -1;
         }
     }
     if (virConfAddEntry(ctxt->conf, name, value, comm) == NULL) {
-        VIR_FREE(name);
         virConfFreeValue(value);
         VIR_FREE(comm);
         return -1;
     }
+
+    VIR_STEAL_PTR(tmp, name);
     return 0;
 }
 
@@ -745,9 +744,8 @@ virConfParse(const char *filename, const char *content, int len,
 virConfPtr
 virConfReadFile(const char *filename, unsigned int flags)
 {
-    char *content;
     int len;
-    virConfPtr conf;
+    VIR_AUTOFREE(char *) content = NULL;
 
     VIR_DEBUG("filename=%s", NULLSTR(filename));
 
@@ -759,11 +757,7 @@ virConfReadFile(const char *filename, unsigned int flags)
     if ((len = virFileReadAll(filename, MAX_CONFIG_FILE_SIZE, &content)) < 0)
         return NULL;
 
-    conf = virConfParse(filename, content, len, flags);
-
-    VIR_FREE(content);
-
-    return conf;
+    return virConfParse(filename, content, len, flags);
 }
 
 /**
@@ -1451,8 +1445,8 @@ virConfWriteFile(const char *filename, virConfPtr conf)
     virConfEntryPtr cur;
     int ret;
     int fd;
-    char *content;
     unsigned int use;
+    VIR_AUTOFREE(char *) content = NULL;
 
     if (conf == NULL)
         return -1;
@@ -1476,7 +1470,7 @@ virConfWriteFile(const char *filename, virConfPtr conf)
     use = virBufferUse(&buf);
     content = virBufferContentAndReset(&buf);
     ret = safewrite(fd, content, use);
-    VIR_FREE(content);
+
     VIR_FORCE_CLOSE(fd);
     if (ret != (int)use) {
         virConfError(NULL, VIR_ERR_WRITE_FAILED, _("failed to save content"));
@@ -1504,8 +1498,8 @@ virConfWriteMem(char *memory, int *len, virConfPtr conf)
 {
     virBuffer buf = VIR_BUFFER_INITIALIZER;
     virConfEntryPtr cur;
-    char *content;
     unsigned int use;
+    VIR_AUTOFREE(char *) content = NULL;
 
     if ((memory == NULL) || (len == NULL) || (*len <= 0) || (conf == NULL))
         return -1;
@@ -1524,11 +1518,9 @@ virConfWriteMem(char *memory, int *len, virConfPtr conf)
 
     if ((int)use >= *len) {
         *len = (int)use;
-        VIR_FREE(content);
         return -1;
     }
     memcpy(memory, content, use);
-    VIR_FREE(content);
     *len = use;
     return use;
 }
@@ -1542,16 +1534,15 @@ virConfLoadConfigPath(const char *name)
                         SYSCONFDIR, name) < 0)
             return NULL;
     } else {
-        char *userdir = virGetUserConfigDirectory();
+        VIR_AUTOFREE(char *) userdir = virGetUserConfigDirectory();
+
         if (!userdir)
             return NULL;
 
         if (virAsprintf(&path, "%s/%s",
                         userdir, name) < 0) {
-            VIR_FREE(userdir);
             return NULL;
         }
-        VIR_FREE(userdir);
     }
 
     return path;
@@ -1560,26 +1551,19 @@ virConfLoadConfigPath(const char *name)
 int
 virConfLoadConfig(virConfPtr *conf, const char *name)
 {
-    char *path = NULL;
-    int ret = -1;
+    VIR_AUTOFREE(char *) path = NULL;
 
     *conf = NULL;
 
     if (!(path = virConfLoadConfigPath(name)))
-        goto cleanup;
+        return -1;
 
-    if (!virFileExists(path)) {
-        ret = 0;
-        goto cleanup;
-    }
+    if (!virFileExists(path))
+        return 0;
 
     VIR_DEBUG("Loading config file '%s'", path);
     if (!(*conf = virConfReadFile(path, 0)))
-        goto cleanup;
+        return -1;
 
-    ret = 0;
-
- cleanup:
-    VIR_FREE(path);
-    return ret;
+    return 0;
 }
