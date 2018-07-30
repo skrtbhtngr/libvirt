@@ -27,6 +27,7 @@
 # include "internal.h"
 # include "virutil.h"
 # include "virbuffer.h"
+# include "viralloc.h"
 
 typedef enum {
     VIR_SYSINFO_SMBIOS,
@@ -153,5 +154,11 @@ bool virSysinfoIsEqual(virSysinfoDefPtr src,
                        virSysinfoDefPtr dst);
 
 VIR_ENUM_DECL(virSysinfo)
+
+VIR_DEFINE_AUTOPTR_FUNC(virSysinfoBIOSDef, virSysinfoBIOSDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virSysinfoSystemDef, virSysinfoSystemDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virSysinfoChassisDef, virSysinfoChassisDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virSysinfoOEMStringsDef, virSysinfoOEMStringsDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virSysinfoDef, virSysinfoDefFree)
 
 #endif /* __VIR_SYSINFOS_H__ */
