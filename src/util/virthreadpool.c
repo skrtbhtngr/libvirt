@@ -27,7 +27,6 @@
 #include <config.h>
 
 #include "virthreadpool.h"
-#include "viralloc.h"
 #include "virthread.h"
 #include "virerror.h"
 

@@ -27,6 +27,7 @@
 # define __VIR_THREADPOOL_H__
 
 # include "internal.h"
+# include "viralloc.h"
 
 typedef struct _virThreadPool virThreadPool;
 typedef virThreadPool *virThreadPoolPtr;
@@ -61,5 +62,7 @@ int virThreadPoolSetParameters(virThreadPoolPtr pool,
                                long long int minWorkers,
                                long long int maxWorkers,
                                long long int prioWorkers);
+
+VIR_DEFINE_AUTOPTR_FUNC(virThreadPool, virThreadPoolFree)
 
 #endif
