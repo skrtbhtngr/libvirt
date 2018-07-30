@@ -37,26 +37,21 @@ virURIParamAppend(virURIPtr uri,
                   const char *name,
                   const char *value)
 {
-    char *pname = NULL;
-    char *pvalue = NULL;
+    VIR_AUTOFREE(char *) pname = NULL;
+    VIR_AUTOFREE(char *) pvalue = NULL;
 
     if (VIR_STRDUP(pname, name) < 0 || VIR_STRDUP(pvalue, value) < 0)
-        goto error;
+        return -1;
 
     if (VIR_RESIZE_N(uri->params, uri->paramsAlloc, uri->paramsCount, 1) < 0)
-        goto error;
+        return -1;
 
-    uri->params[uri->paramsCount].name = pname;
-    uri->params[uri->paramsCount].value = pvalue;
+    ignore_value(VIR_STRDUP(uri->params[uri->paramsCount].name, pname));
+    ignore_value(VIR_STRDUP(uri->params[uri->paramsCount].value, pvalue));
     uri->params[uri->paramsCount].ignore = 0;
     uri->paramsCount++;
 
     return 0;
-
- error:
-    VIR_FREE(pname);
-    VIR_FREE(pvalue);
-    return -1;
 }
 
 
@@ -70,7 +65,8 @@ virURIParseParams(virURIPtr uri)
         return 0;
 
     while (*query) {
-        char *name = NULL, *value = NULL;
+        VIR_AUTOFREE(char *) name = NULL;
+        VIR_AUTOFREE(char *) value = NULL;
 
         /* Find the next separator, or end of the string. */
         end = strchr(query, '&');
@@ -109,20 +105,13 @@ virURIParseParams(virURIPtr uri)
             if (!name)
                 goto no_memory;
             value = xmlURIUnescapeString(eq+1, end - (eq+1), NULL);
-            if (!value) {
-                VIR_FREE(name);
+            if (!value)
                 goto no_memory;
-            }
         }
 
         /* Append to the parameter set. */
-        if (virURIParamAppend(uri, name, value ? value : "") < 0) {
-            VIR_FREE(name);
-            VIR_FREE(value);
+        if (virURIParamAppend(uri, name, value ? value : "") < 0)
             return -1;
-        }
-        VIR_FREE(name);
-        VIR_FREE(value);
 
     next:
         query = end;
@@ -218,8 +207,8 @@ char *
 virURIFormat(virURIPtr uri)
 {
     xmlURI xmluri;
-    char *tmpserver = NULL;
     char *ret;
+    VIR_AUTOFREE(char *) tmpserver = NULL;
 
     memset(&xmluri, 0, sizeof(xmluri));
 
@@ -253,13 +242,8 @@ virURIFormat(virURIPtr uri)
         xmluri.port = -1;
 
     ret = (char *)xmlSaveUri(&xmluri);
-    if (!ret) {
+    if (!ret)
         virReportOOMError();
-        goto cleanup;
-    }
-
- cleanup:
-    VIR_FREE(tmpserver);
 
     return ret;
 }
