@@ -166,7 +166,8 @@ virSystemdGetMachineNameByPID(pid_t pid)
 {
     DBusConnection *conn;
     DBusMessage *reply = NULL;
-    char *name = NULL, *object = NULL;
+    char *name = NULL;
+    VIR_AUTOFREE(char *) object = NULL;
 
     if (virSystemdHasMachined() < 0)
         goto cleanup;
@@ -208,7 +209,6 @@ virSystemdGetMachineNameByPID(pid_t pid)
               (long long) pid, name);
 
  cleanup:
-    VIR_FREE(object);
     virDBusMessageUnref(reply);
 
     return name;
@@ -242,9 +242,9 @@ int virSystemdCreateMachine(const char *name,
 {
     int ret;
     DBusConnection *conn;
-    char *creatorname = NULL;
-    char *slicename = NULL;
     static int hasCreateWithNetwork = 1;
+    VIR_AUTOFREE(char *) creatorname = NULL;
+    VIR_AUTOFREE(char *) slicename = NULL;
 
     if ((ret = virSystemdHasMachined()) < 0)
         return ret;
@@ -252,17 +252,15 @@ int virSystemdCreateMachine(const char *name,
     if (!(conn = virDBusGetSystemBus()))
         return -1;
 
-    ret = -1;
-
     if (virAsprintf(&creatorname, "libvirt-%s", drivername) < 0)
-        goto cleanup;
+        return -1;
 
     if (partition) {
         if (!(slicename = virSystemdMakeSliceName(partition)))
-             goto cleanup;
+            return -1;
     } else {
         if (VIR_STRDUP(slicename, "") < 0)
-            goto cleanup;
+            return -1;
     }
 
     /*
@@ -345,7 +343,7 @@ int virSystemdCreateMachine(const char *name,
                               "Slice", "s", slicename,
                               "After", "as", 1, "libvirtd.service",
                               "Before", "as", 1, "virt-guest-shutdown.target") < 0)
-            goto cleanup;
+            return -1;
 
         if (error.level == VIR_ERR_ERROR) {
             if (virDBusErrorIsUnknownMethod(&error)) {
@@ -360,7 +358,7 @@ int virSystemdCreateMachine(const char *name,
             }
             virReportErrorObject(&error);
             virResetError(&error);
-            goto cleanup;
+            return -1;
         }
     } else {
     fallback:
@@ -386,15 +384,10 @@ int virSystemdCreateMachine(const char *name,
                               "Slice", "s", slicename,
                               "After", "as", 1, "libvirtd.service",
                               "Before", "as", 1, "virt-guest-shutdown.target") < 0)
-            goto cleanup;
+            return -1;
     }
 
-    ret = 0;
-
- cleanup:
-    VIR_FREE(creatorname);
-    VIR_FREE(slicename);
-    return ret;
+    return 0;
 }
 
 int virSystemdTerminateMachine(const char *name)
@@ -509,7 +502,7 @@ virSystemdPMSupportTarget(const char *methodName, bool *result)
     int ret;
     DBusConnection *conn;
     DBusMessage *message = NULL;
-    char *response;
+    VIR_AUTOFREE(char *) response = NULL;
 
     ret = virDBusIsServiceEnabled("org.freedesktop.login1");
     if (ret < 0)
@@ -542,7 +535,6 @@ virSystemdPMSupportTarget(const char *methodName, bool *result)
 
  cleanup:
     virDBusMessageUnref(message);
-    VIR_FREE(response);
 
     return ret;
 }
