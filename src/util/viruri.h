@@ -24,7 +24,9 @@
 # include <libxml/uri.h>
 
 # include "internal.h"
+
 # include "virconf.h"
+# include "viralloc.h"
 
 typedef struct _virURI virURI;
 typedef virURI *virURIPtr;
@@ -63,5 +65,7 @@ void virURIFree(virURIPtr uri);
 int virURIResolveAlias(virConfPtr conf, const char *alias, char **uri);
 
 # define VIR_URI_SERVER(uri) ((uri) && (uri)->server ? (uri)->server : "localhost")
+
+VIR_DEFINE_AUTOPTR_FUNC(virURI, virURIFree)
 
 #endif /* __VIR_URI_H__ */

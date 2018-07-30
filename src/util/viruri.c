@@ -21,7 +21,6 @@
 #include <config.h>
 
 #include "viruri.h"
-
 #include "viralloc.h"
 #include "virerror.h"
 #include "virbuffer.h"
