@@ -298,7 +298,7 @@ virSysinfoDefPtr
 virSysinfoReadPPC(void)
 {
     virSysinfoDefPtr ret = NULL;
-    char *outbuf = NULL;
+    VIR_AUTOFREE(char *) outbuf = NULL;
 
     if (VIR_ALLOC(ret) < 0)
         goto no_memory;
@@ -317,11 +317,9 @@ virSysinfoReadPPC(void)
     if (virSysinfoParsePPCSystem(outbuf, &ret->system) < 0)
         goto no_memory;
 
-    VIR_FREE(outbuf);
     return ret;
 
  no_memory:
-    VIR_FREE(outbuf);
     virSysinfoDefFree(ret);
     return NULL;
 }
@@ -383,9 +381,10 @@ static int
 virSysinfoParseARMProcessor(const char *base, virSysinfoDefPtr ret)
 {
     const char *cur;
-    char *eol, *tmp_base;
+    char *eol;
+    char *tmp_base;
     virSysinfoProcessorDefPtr processor;
-    char *processor_type = NULL;
+    VIR_AUTOFREE(char *) processor_type = NULL;
 
     if (!(tmp_base = strstr(base, "model name")) &&
         !(tmp_base = strstr(base, "Processor")))
@@ -395,7 +394,7 @@ virSysinfoParseARMProcessor(const char *base, virSysinfoDefPtr ret)
     cur = strchr(tmp_base, ':') + 1;
     virSkipSpaces(&cur);
     if (eol && VIR_STRNDUP(processor_type, cur, eol - cur) < 0)
-        goto error;
+        return -1;
 
     while ((tmp_base = strstr(base, "processor")) != NULL) {
         base = tmp_base;
@@ -403,27 +402,22 @@ virSysinfoParseARMProcessor(const char *base, virSysinfoDefPtr ret)
         cur = strchr(base, ':') + 1;
 
         if (VIR_EXPAND_N(ret->processor, ret->nprocessor, 1) < 0)
-            goto error;
+            return -1;
         processor = &ret->processor[ret->nprocessor - 1];
 
         virSkipSpaces(&cur);
         if (eol &&
             VIR_STRNDUP(processor->processor_socket_destination,
                         cur, eol - cur) < 0)
-            goto error;
+            return -1;
 
         if (VIR_STRDUP(processor->processor_type, processor_type) < 0)
-            goto error;
+            return -1;
 
         base = cur;
     }
 
-    VIR_FREE(processor_type);
     return 0;
-
- error:
-    VIR_FREE(processor_type);
-    return -1;
 }
 
 /* virSysinfoRead for ARMv7
@@ -432,7 +426,7 @@ virSysinfoDefPtr
 virSysinfoReadARM(void)
 {
     virSysinfoDefPtr ret = NULL;
-    char *outbuf = NULL;
+    VIR_AUTOFREE(char *) outbuf = NULL;
 
     if (VIR_ALLOC(ret) < 0)
         goto no_memory;
@@ -451,11 +445,9 @@ virSysinfoReadARM(void)
     if (virSysinfoParseARMSystem(outbuf, &ret->system) < 0)
         goto no_memory;
 
-    VIR_FREE(outbuf);
     return ret;
 
  no_memory:
-    VIR_FREE(outbuf);
     virSysinfoDefFree(ret);
     return NULL;
 }
@@ -527,14 +519,13 @@ static int
 virSysinfoParseS390Processor(const char *base, virSysinfoDefPtr ret)
 {
     char *tmp_base;
-    char *manufacturer = NULL;
-    char *procline = NULL;
-    char *ncpu = NULL;
-    int result = -1;
     virSysinfoProcessorDefPtr processor;
+    VIR_AUTOFREE(char *) manufacturer = NULL;
+    VIR_AUTOFREE(char *) procline = NULL;
+    VIR_AUTOFREE(char *) ncpu = NULL;
 
     if (!(tmp_base = virSysinfoParseS390Line(base, "vendor_id", &manufacturer)))
-        goto error;
+        return -1;
 
     /* Find processor N: line and gather the processor manufacturer,
        version, serial number, and family */
@@ -542,10 +533,10 @@ virSysinfoParseS390Processor(const char *base, virSysinfoDefPtr ret)
            && (tmp_base = virSysinfoParseS390Line(tmp_base, "processor ",
                                                   &procline))) {
         if (VIR_EXPAND_N(ret->processor, ret->nprocessor, 1) < 0)
-            goto error;
+            return -1;
         processor = &ret->processor[ret->nprocessor - 1];
         if (VIR_STRDUP(processor->processor_manufacturer, manufacturer) < 0)
-            goto error;
+            return -1;
         if (!virSysinfoParseS390Delimited(procline, "version",
                                           &processor->processor_version,
                                           '=', ',') ||
@@ -555,7 +546,7 @@ virSysinfoParseS390Processor(const char *base, virSysinfoDefPtr ret)
             !virSysinfoParseS390Delimited(procline, "machine",
                                           &processor->processor_family,
                                           '=', '\n'))
-            goto error;
+            return -1;
 
         VIR_FREE(procline);
     }
@@ -569,30 +560,23 @@ virSysinfoParseS390Processor(const char *base, virSysinfoDefPtr ret)
         char *mhz = NULL;
 
         if (virStrToLong_uip(ncpu, NULL, 10, &n) < 0)
-            goto error;
+            return -1;
 
         if (n >= ret->nprocessor) {
             VIR_DEBUG("CPU number '%u' out of range", n);
-            goto cleanup;
+            return 0;
         }
 
         if (!(tmp_base = strstr(tmp_base, "cpu MHz static")) ||
             !virSysinfoParseS390Line(tmp_base, "cpu MHz static", &mhz))
-            goto cleanup;
+            return 0;
 
         ret->processor[n].processor_max_speed = mhz;
 
         VIR_FREE(ncpu);
     }
 
- cleanup:
-    result = 0;
-
- error:
-    VIR_FREE(manufacturer);
-    VIR_FREE(procline);
-    VIR_FREE(ncpu);
-    return result;
+    return 0;
 }
 
 /* virSysinfoRead for s390x
@@ -601,7 +585,7 @@ virSysinfoDefPtr
 virSysinfoReadS390(void)
 {
     virSysinfoDefPtr ret = NULL;
-    char *outbuf = NULL;
+    VIR_AUTOFREE(char *) outbuf = NULL;
 
     if (VIR_ALLOC(ret) < 0)
         goto no_memory;
@@ -629,12 +613,10 @@ virSysinfoReadS390(void)
     if (virSysinfoParseS390System(outbuf, &ret->system) < 0)
         goto no_memory;
 
-    VIR_FREE(outbuf);
     return ret;
 
  no_memory:
     virSysinfoDefFree(ret);
-    VIR_FREE(outbuf);
     return NULL;
 }
 
@@ -784,9 +766,9 @@ virSysinfoParseX86BaseBoard(const char *base,
     int ret = -1;
     const char *cur;
     char *eol = NULL;
-    virSysinfoBaseBoardDefPtr boards = NULL;
     size_t nboards = 0;
-    char *board_type = NULL;
+    VIR_AUTOFREE(virSysinfoBaseBoardDefPtr) boards = NULL;
+    VIR_AUTOFREE(char *) board_type = NULL;
 
     while (base && (cur = strstr(base, "Base Board Information"))) {
         virSysinfoBaseBoardDefPtr def;
@@ -848,16 +830,13 @@ virSysinfoParseX86BaseBoard(const char *base,
     /* This is safe, as we can be only shrinking the memory */
     ignore_value(VIR_REALLOC_N(boards, nboards));
 
-    *baseBoard = boards;
+    VIR_STEAL_PTR(*baseBoard, boards);
     *nbaseBoard = nboards;
-    boards = NULL;
     nboards = 0;
     ret = 0;
  cleanup:
     while (nboards--)
         virSysinfoBaseBoardDefClear(&boards[nboards]);
-    VIR_FREE(boards);
-    VIR_FREE(board_type);
     return ret;
 }
 
@@ -1138,10 +1117,10 @@ virSysinfoParseX86Memory(const char *base, virSysinfoDefPtr ret)
 virSysinfoDefPtr
 virSysinfoReadX86(void)
 {
-    char *path;
     virSysinfoDefPtr ret = NULL;
-    char *outbuf = NULL;
     virCommandPtr cmd;
+    VIR_AUTOFREE(char *) path = NULL;
+    VIR_AUTOFREE(char *) outbuf = NULL;
 
     path = virFindFileInPath(SYSINFO_SMBIOS_DECODER);
     if (path == NULL) {
@@ -1152,7 +1131,6 @@ virSysinfoReadX86(void)
     }
 
     cmd = virCommandNewArgList(path, "-q", "-t", "0,1,2,3,4,17", NULL);
-    VIR_FREE(path);
     virCommandSetOutputBuffer(cmd, &outbuf);
     if (virCommandRun(cmd, NULL) < 0)
         goto cleanup;
@@ -1185,7 +1163,6 @@ virSysinfoReadX86(void)
         goto error;
 
  cleanup:
-    VIR_FREE(outbuf);
     virCommandFree(cmd);
 
     return ret;
