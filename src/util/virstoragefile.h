@@ -32,6 +32,7 @@
 # include "virstorageencryption.h"
 # include "virutil.h"
 # include "virsecret.h"
+# include "viralloc.h"
 
 /* Minimum header size required to probe all known formats with
  * virStorageFileProbeFormat, or obtain metadata from a known format.
@@ -541,5 +542,10 @@ int virStorageFileGetBackingStoreStr(virStorageSourcePtr src,
 void virStorageFileReportBrokenChain(int errcode,
                                      virStorageSourcePtr src,
                                      virStorageSourcePtr parent);
+
+VIR_DEFINE_AUTOPTR_FUNC(virStorageAuthDef, virStorageAuthDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virStoragePRDef, virStoragePRDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virStorageSourcePoolDef, virStorageSourcePoolDefFree)
+VIR_DEFINE_AUTOPTR_FUNC(virStorageSource, virStorageSourceFree)
 
 #endif /* __VIR_STORAGE_FILE_H__ */

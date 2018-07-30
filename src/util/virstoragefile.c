@@ -22,12 +22,11 @@
  */
 
 #include <config.h>
-#include "virstoragefilebackend.h"
-
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
-#include "viralloc.h"
+
+#include "virstoragefilebackend.h"
 #include "virxml.h"
 #include "viruuid.h"
 #include "virerror.h"
@@ -1736,6 +1735,8 @@ virStoragePermsFree(virStoragePermsPtr def)
     VIR_FREE(def->label);
     VIR_FREE(def);
 }
+
+VIR_DEFINE_AUTOPTR_FUNC(virStoragePerms, virStoragePermsFree)
 
 
 virStorageNetHostDefPtr
