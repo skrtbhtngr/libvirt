@@ -203,6 +203,8 @@ virPipeReadUntilEOF(int outfd, int errfd,
     struct pollfd fds[2];
     size_t i;
     bool finished[2];
+    VIR_AUTOFREE(char *) tmpOutbuf = *outbuf;
+    VIR_AUTOFREE(char *) tmpErrbuf = *errbuf;
 
     fds[0].fd = outfd;
     fds[0].events = POLLIN;
@@ -236,7 +238,7 @@ virPipeReadUntilEOF(int outfd, int errfd,
 
                 virReportError(VIR_ERR_INTERNAL_ERROR,
                                "%s", _("Unknown poll response."));
-                goto error;
+                return -1;
             }
 
             got = read(fds[i].fd, data, sizeof(data));
@@ -256,10 +258,10 @@ virPipeReadUntilEOF(int outfd, int errfd,
                 goto pollerr;
             }
 
-            buf = ((fds[i].fd == outfd) ? outbuf : errbuf);
+            buf = ((fds[i].fd == outfd) ? &tmpOutbuf : &tmpErrbuf);
             size = (*buf ? strlen(*buf) : 0);
             if (VIR_REALLOC_N(*buf, size+got+1) < 0)
-                goto error;
+                return -1;
             memmove(*buf+size, data, got);
             (*buf)[size+got] = '\0';
         }
@@ -268,15 +270,13 @@ virPipeReadUntilEOF(int outfd, int errfd,
     pollerr:
         virReportSystemError(errno,
                              "%s", _("poll error"));
-        goto error;
+        return -1;
     }
 
-    return 0;
+    VIR_STEAL_PTR(*outbuf, tmpOutbuf);
+    VIR_STEAL_PTR(*errbuf, tmpErrbuf);
 
- error:
-    VIR_FREE(*outbuf);
-    VIR_FREE(*errbuf);
-    return -1;
+    return 0;
 }
 
 /* Convert C from hexadecimal character to integer.  */
@@ -772,13 +772,13 @@ virGetUserDirectory(void)
 static int
 virGetUserEnt(uid_t uid, char **name, gid_t *group, char **dir, char **shell, bool quiet)
 {
-    char *strbuf;
     struct passwd pwbuf;
     struct passwd *pw = NULL;
     long val = sysconf(_SC_GETPW_R_SIZE_MAX);
     size_t strbuflen = val;
     int rc;
     int ret = -1;
+    VIR_AUTOFREE(char *) strbuf = NULL;
 
     if (name)
         *name = NULL;
@@ -843,19 +843,18 @@ virGetUserEnt(uid_t uid, char **name, gid_t *group, char **dir, char **shell, bo
         if (shell)
             VIR_FREE(*shell);
     }
-    VIR_FREE(strbuf);
     return ret;
 }
 
 static char *virGetGroupEnt(gid_t gid)
 {
-    char *strbuf;
     char *ret;
     struct group grbuf;
     struct group *gr = NULL;
     long val = sysconf(_SC_GETGR_R_SIZE_MAX);
     size_t strbuflen = val;
     int rc;
+    VIR_AUTOFREE(char *) strbuf = NULL;
 
     /* sysconf is a hint; if it fails, fall back to a reasonable size */
     if (val < 0)
@@ -872,10 +871,8 @@ static char *virGetGroupEnt(gid_t gid)
      *        The given name or gid was not found.
      */
     while ((rc = getgrgid_r(gid, &grbuf, strbuf, strbuflen, &gr)) == ERANGE) {
-        if (VIR_RESIZE_N(strbuf, strbuflen, strbuflen, strbuflen) < 0) {
-            VIR_FREE(strbuf);
+        if (VIR_RESIZE_N(strbuf, strbuflen, strbuflen, strbuflen) < 0)
             return NULL;
-        }
     }
     if (rc != 0 || gr == NULL) {
         if (rc != 0) {
@@ -888,12 +885,10 @@ static char *virGetGroupEnt(gid_t gid)
                            (unsigned int) gid);
         }
 
-        VIR_FREE(strbuf);
         return NULL;
     }
 
     ignore_value(VIR_STRDUP(ret, gr->gr_name));
-    VIR_FREE(strbuf);
     return ret;
 }
 
@@ -919,7 +914,7 @@ static char *virGetXDGDirectory(const char *xdgenvname, const char *xdgdefdir)
 {
     const char *path = virGetEnvBlockSUID(xdgenvname);
     char *ret = NULL;
-    char *home = NULL;
+    VIR_AUTOFREE(char *) home = NULL;
 
     if (path && path[0]) {
         ignore_value(virAsprintf(&ret, "%s/libvirt", path));
@@ -929,7 +924,6 @@ static char *virGetXDGDirectory(const char *xdgenvname, const char *xdgdefdir)
             ignore_value(virAsprintf(&ret, "%s/%s/libvirt", home, xdgdefdir));
     }
 
-    VIR_FREE(home);
     return ret;
 }
 
@@ -975,24 +969,23 @@ char *virGetGroupName(gid_t gid)
 static int
 virGetUserIDByName(const char *name, uid_t *uid)
 {
-    char *strbuf = NULL;
     struct passwd pwbuf;
     struct passwd *pw = NULL;
     long val = sysconf(_SC_GETPW_R_SIZE_MAX);
     size_t strbuflen = val;
     int rc;
-    int ret = -1;
+    VIR_AUTOFREE(char *) strbuf = NULL;
 
     /* sysconf is a hint; if it fails, fall back to a reasonable size */
     if (val < 0)
         strbuflen = 1024;
 
     if (VIR_ALLOC_N(strbuf, strbuflen) < 0)
-        goto cleanup;
+        return -1;
 
     while ((rc = getpwnam_r(name, &pwbuf, strbuf, strbuflen, &pw)) == ERANGE) {
         if (VIR_RESIZE_N(strbuf, strbuflen, strbuflen, strbuflen) < 0)
-            goto cleanup;
+            return -1;
     }
 
     if (!pw) {
@@ -1005,17 +998,11 @@ virGetUserIDByName(const char *name, uid_t *uid)
                      name, virStrerror(rc, buf, sizeof(buf)));
         }
 
-        ret = 1;
-        goto cleanup;
+        return 1;
     }
 
     *uid = pw->pw_uid;
-    ret = 0;
-
- cleanup:
-    VIR_FREE(strbuf);
-
-    return ret;
+    return 0;
 }
 
 /* Try to match a user id based on `user`. The default behavior is to parse
@@ -1055,24 +1042,23 @@ virGetUserID(const char *user, uid_t *uid)
 static int
 virGetGroupIDByName(const char *name, gid_t *gid)
 {
-    char *strbuf = NULL;
     struct group grbuf;
     struct group *gr = NULL;
     long val = sysconf(_SC_GETGR_R_SIZE_MAX);
     size_t strbuflen = val;
     int rc;
-    int ret = -1;
+    VIR_AUTOFREE(char *) strbuf = NULL;
 
     /* sysconf is a hint; if it fails, fall back to a reasonable size */
     if (val < 0)
         strbuflen = 1024;
 
     if (VIR_ALLOC_N(strbuf, strbuflen) < 0)
-        goto cleanup;
+        return -1;
 
     while ((rc = getgrnam_r(name, &grbuf, strbuf, strbuflen, &gr)) == ERANGE) {
         if (VIR_RESIZE_N(strbuf, strbuflen, strbuflen, strbuflen) < 0)
-            goto cleanup;
+            return -1;
     }
 
     if (!gr) {
@@ -1085,17 +1071,11 @@ virGetGroupIDByName(const char *name, gid_t *gid)
                      name, virStrerror(rc, buf, sizeof(buf)));
         }
 
-        ret = 1;
-        goto cleanup;
+        return 1;
     }
 
     *gid = gr->gr_gid;
-    ret = 0;
-
- cleanup:
-    VIR_FREE(strbuf);
-
-    return ret;
+    return 0;
 }
 
 /* Try to match a group id based on `group`. The default behavior is to parse
@@ -1142,8 +1122,8 @@ int
 virGetGroupList(uid_t uid, gid_t gid, gid_t **list)
 {
     int ret = 0;
-    char *user = NULL;
     gid_t primary;
+    VIR_AUTOFREE(char *) user = NULL;
 
     *list = NULL;
 
@@ -1153,8 +1133,7 @@ virGetGroupList(uid_t uid, gid_t gid, gid_t **list)
         if ((ret = mgetgroups(user, primary, list)) < 0) {
             virReportSystemError(errno,
                                  _("cannot get group list for '%s'"), user);
-            ret = -1;
-            goto cleanup;
+            return -1;
         }
     }
 
@@ -1163,19 +1142,16 @@ virGetGroupList(uid_t uid, gid_t gid, gid_t **list)
 
         for (i = 0; i < ret; i++) {
             if ((*list)[i] == gid)
-                goto cleanup;
+                return 0;
         }
         if (VIR_APPEND_ELEMENT(*list, i, gid) < 0) {
-            ret = -1;
             VIR_FREE(*list);
-            goto cleanup;
+            return -1;
         } else {
             ret = i;
         }
     }
 
- cleanup:
-    VIR_FREE(user);
     return ret;
 }
 
@@ -1721,10 +1697,9 @@ virSetDeviceUnprivSGIO(const char *path,
                        const char *sysfs_dir,
                        int unpriv_sgio)
 {
-    char *sysfs_path = NULL;
-    char *val = NULL;
-    int ret = -1;
     int rc;
+    VIR_AUTOFREE(char *) sysfs_path = NULL;
+    VIR_AUTOFREE(char *) val = NULL;
 
     if (!(sysfs_path = virGetUnprivSGIOSysfsPath(path, sysfs_dir)))
         return -1;
@@ -1732,22 +1707,18 @@ virSetDeviceUnprivSGIO(const char *path,
     if (!virFileExists(sysfs_path)) {
         virReportError(VIR_ERR_OPERATION_INVALID, "%s",
                        _("unpriv_sgio is not supported by this kernel"));
-        goto cleanup;
+        return -1;
     }
 
     if (virAsprintf(&val, "%d", unpriv_sgio) < 0)
-        goto cleanup;
+        return -1;
 
     if ((rc = virFileWriteStr(sysfs_path, val, 0)) < 0) {
         virReportSystemError(-rc, _("failed to set %s"), sysfs_path);
-        goto cleanup;
+        return -1;
     }
 
-    ret = 0;
- cleanup:
-    VIR_FREE(sysfs_path);
-    VIR_FREE(val);
-    return ret;
+    return 0;
 }
 
 int
@@ -1755,10 +1726,9 @@ virGetDeviceUnprivSGIO(const char *path,
                        const char *sysfs_dir,
                        int *unpriv_sgio)
 {
-    char *sysfs_path = NULL;
-    char *buf = NULL;
     char *tmp = NULL;
-    int ret = -1;
+    VIR_AUTOFREE(char *) sysfs_path = NULL;
+    VIR_AUTOFREE(char *) buf = NULL;
 
     if (!(sysfs_path = virGetUnprivSGIOSysfsPath(path, sysfs_dir)))
         return -1;
@@ -1766,11 +1736,11 @@ virGetDeviceUnprivSGIO(const char *path,
     if (!virFileExists(sysfs_path)) {
         virReportError(VIR_ERR_OPERATION_INVALID, "%s",
                        _("unpriv_sgio is not supported by this kernel"));
-        goto cleanup;
+        return -1;
     }
 
     if (virFileReadAll(sysfs_path, 1024, &buf) < 0)
-        goto cleanup;
+        return -1;
 
     if ((tmp = strchr(buf, '\n')))
         *tmp = '\0';
@@ -1778,14 +1748,10 @@ virGetDeviceUnprivSGIO(const char *path,
     if (virStrToLong_i(buf, NULL, 10, unpriv_sgio) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("failed to parse value of %s"), sysfs_path);
-        goto cleanup;
+        return -1;
     }
 
-    ret = 0;
- cleanup:
-    VIR_FREE(sysfs_path);
-    VIR_FREE(buf);
-    return ret;
+    return 0;
 }
 
 
@@ -1802,16 +1768,15 @@ virGetDeviceUnprivSGIO(const char *path,
 int
 virParseOwnershipIds(const char *label, uid_t *uidPtr, gid_t *gidPtr)
 {
-    int rc = -1;
     uid_t theuid;
     gid_t thegid;
-    char *tmp_label = NULL;
     char *sep = NULL;
     char *owner = NULL;
     char *group = NULL;
+    VIR_AUTOFREE(char *) tmp_label = NULL;
 
     if (VIR_STRDUP(tmp_label, label) < 0)
-        goto cleanup;
+        return -1;
 
     /* Split label */
     sep = strchr(tmp_label, ':');
@@ -1819,7 +1784,7 @@ virParseOwnershipIds(const char *label, uid_t *uidPtr, gid_t *gidPtr)
         virReportError(VIR_ERR_INVALID_ARG,
                        _("Failed to parse uid and gid from '%s'"),
                        label);
-        goto cleanup;
+        return -1;
     }
     *sep = '\0';
     owner = tmp_label;
@@ -1830,19 +1795,14 @@ virParseOwnershipIds(const char *label, uid_t *uidPtr, gid_t *gidPtr)
      */
     if (virGetUserID(owner, &theuid) < 0 ||
         virGetGroupID(group, &thegid) < 0)
-        goto cleanup;
+        return -1;
 
     if (uidPtr)
         *uidPtr = theuid;
     if (gidPtr)
         *gidPtr = thegid;
 
-    rc = 0;
-
- cleanup:
-    VIR_FREE(tmp_label);
-
-    return rc;
+    return 0;
 }
 
 
