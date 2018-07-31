@@ -23,14 +23,15 @@
 #ifndef __VIR_XML_H__
 # define __VIR_XML_H__
 
-# include "internal.h"
-
 # include <libxml/parser.h>
 # include <libxml/tree.h>
 # include <libxml/xpath.h>
 # include <libxml/relaxng.h>
 
+# include "internal.h"
+
 # include "virbuffer.h"
+# include "viralloc.h"
 
 int              virXPathBoolean(const char *xpath,
                                  xmlXPathContextPtr ctxt);
@@ -220,5 +221,7 @@ virXMLFormatElement(virBufferPtr buf,
                     const char *name,
                     virBufferPtr attrBuf,
                     virBufferPtr childBuf);
+
+VIR_DEFINE_AUTOPTR_FUNC(virXMLValidator, virXMLValidatorFree)
 
 #endif                          /* __VIR_XML_H__ */

@@ -34,7 +34,6 @@
 #include "virxml.h"
 #include "virbuffer.h"
 #include "virutil.h"
-#include "viralloc.h"
 #include "virfile.h"
 #include "virstring.h"
 
