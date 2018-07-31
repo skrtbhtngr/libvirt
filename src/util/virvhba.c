@@ -49,8 +49,7 @@ bool
 virVHBAPathExists(const char *sysfs_prefix,
                   int host)
 {
-    char *sysfs_path = NULL;
-    bool ret = false;
+    VIR_AUTOFREE(char *) sysfs_path = NULL;
 
     if (virAsprintf(&sysfs_path, "%s/host%d",
                     sysfs_prefix ? sysfs_prefix : SYSFS_FC_HOST_PATH,
@@ -58,10 +57,9 @@ virVHBAPathExists(const char *sysfs_prefix,
         return false;
 
     if (virFileExists(sysfs_path))
-        ret = true;
+        return true;
 
-    VIR_FREE(sysfs_path);
-    return ret;
+    return false;
 }
 
 
@@ -81,9 +79,8 @@ bool
 virVHBAIsVportCapable(const char *sysfs_prefix,
                       int host)
 {
-    char *scsi_host_path = NULL;
-    char *fc_host_path = NULL;
-    bool ret = false;
+    VIR_AUTOFREE(char *) scsi_host_path = NULL;
+    VIR_AUTOFREE(char *) fc_host_path = NULL;
 
     if (virAsprintf(&fc_host_path,
                     "%s/host%d/%s",
@@ -97,15 +94,12 @@ virVHBAIsVportCapable(const char *sysfs_prefix,
                     sysfs_prefix ? sysfs_prefix : SYSFS_SCSI_HOST_PATH,
                     host,
                     "vport_create") < 0)
-        goto cleanup;
+        return false;
 
     if (virFileExists(fc_host_path) || virFileExists(scsi_host_path))
-        ret = true;
+        return true;
 
- cleanup:
-    VIR_FREE(fc_host_path);
-    VIR_FREE(scsi_host_path);
-    return ret;
+    return false;
 }
 
 
@@ -124,21 +118,21 @@ virVHBAGetConfig(const char *sysfs_prefix,
                  int host,
                  const char *entry)
 {
-    char *sysfs_path = NULL;
     char *p = NULL;
-    char *buf = NULL;
     char *result = NULL;
+    VIR_AUTOFREE(char *) sysfs_path = NULL;
+    VIR_AUTOFREE(char *) buf = NULL;
 
     if (virAsprintf(&sysfs_path, "%s/host%d/%s",
                     sysfs_prefix ? sysfs_prefix : SYSFS_FC_HOST_PATH,
                     host, entry) < 0)
-        goto cleanup;
+        return NULL;
 
     if (!virFileExists(sysfs_path))
-        goto cleanup;
+        return NULL;
 
     if (virFileReadAll(sysfs_path, 1024, &buf) < 0)
-        goto cleanup;
+        return NULL;
 
     if ((p = strchr(buf, '\n')))
         *p = '\0';
@@ -150,9 +144,6 @@ virVHBAGetConfig(const char *sysfs_prefix,
 
     ignore_value(VIR_STRDUP(result, p));
 
- cleanup:
-    VIR_FREE(sysfs_path);
-    VIR_FREE(buf);
     return result;
 }
 
@@ -171,9 +162,6 @@ virVHBAFindVportHost(const char *sysfs_prefix)
     const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_FC_HOST_PATH;
     DIR *dir = NULL;
     struct dirent *entry = NULL;
-    char *max_vports = NULL;
-    char *vports = NULL;
-    char *state = NULL;
     char *ret = NULL;
 
     if (virDirOpen(&dir, prefix) < 0)
@@ -182,6 +170,9 @@ virVHBAFindVportHost(const char *sysfs_prefix)
     while (virDirRead(dir, &entry, prefix) > 0) {
         unsigned int host;
         char *p = NULL;
+        VIR_AUTOFREE(char *) max_vports = NULL;
+        VIR_AUTOFREE(char *) vports = NULL;
+        VIR_AUTOFREE(char *) state = NULL;
 
         p = entry->d_name + strlen("host");
         if (virStrToLong_ui(p, NULL, 10, &host) == -1) {
@@ -199,11 +190,8 @@ virVHBAFindVportHost(const char *sysfs_prefix)
         }
 
         /* Skip the not online FC host */
-        if (STRNEQ(state, PORT_STATE_ONLINE)) {
-            VIR_FREE(state);
+        if (STRNEQ(state, PORT_STATE_ONLINE))
             continue;
-        }
-        VIR_FREE(state);
 
         if (!(max_vports = virVHBAGetConfig(prefix, host, "max_npiv_vports"))) {
              VIR_DEBUG("Failed to read max_npiv_vports for host%d", host);
@@ -212,7 +200,6 @@ virVHBAFindVportHost(const char *sysfs_prefix)
 
         if (!(vports = virVHBAGetConfig(prefix, host, "npiv_vports_inuse"))) {
              VIR_DEBUG("Failed to read npiv_vports_inuse for host%d", host);
-             VIR_FREE(max_vports);
              continue;
         }
 
@@ -225,15 +212,10 @@ virVHBAFindVportHost(const char *sysfs_prefix)
             ignore_value(VIR_STRDUP(ret, entry->d_name));
             goto cleanup;
         }
-
-        VIR_FREE(max_vports);
-        VIR_FREE(vports);
     }
 
  cleanup:
     VIR_DIR_CLOSE(dir);
-    VIR_FREE(max_vports);
-    VIR_FREE(vports);
     return ret;
 }
 
@@ -252,9 +234,9 @@ virVHBAManageVport(const int parent_host,
                    const char *wwnn,
                    int operation)
 {
-    int ret = -1;
-    char *operation_path = NULL, *vport_name = NULL;
     const char *operation_file = NULL;
+    VIR_AUTOFREE(char *) operation_path = NULL;
+    VIR_AUTOFREE(char *) vport_name = NULL;
 
     switch (operation) {
     case VPORT_CREATE:
@@ -266,25 +248,25 @@ virVHBAManageVport(const int parent_host,
     default:
         virReportError(VIR_ERR_OPERATION_INVALID,
                        _("Invalid vport operation (%d)"), operation);
-        goto cleanup;
+        return -1;
     }
 
     if (virAsprintf(&operation_path, "%s/host%d/%s",
                     SYSFS_FC_HOST_PATH, parent_host, operation_file) < 0)
-        goto cleanup;
+        return -1;
 
     if (!virFileExists(operation_path)) {
         VIR_FREE(operation_path);
         if (virAsprintf(&operation_path, "%s/host%d/%s",
                         SYSFS_SCSI_HOST_PATH, parent_host, operation_file) < 0)
-            goto cleanup;
+            return -1;
 
         if (!virFileExists(operation_path)) {
             virReportError(VIR_ERR_OPERATION_INVALID,
                            _("vport operation '%s' is not supported "
                              "for host%d"),
                            operation_file, parent_host);
-            goto cleanup;
+            return -1;
         }
     }
 
@@ -295,20 +277,17 @@ virVHBAManageVport(const int parent_host,
      * into either adding or removing a node device object and a node device
      * lifecycle event for applications to consume. */
     if (virAsprintf(&vport_name, "%s:%s", wwpn, wwnn) < 0)
-        goto cleanup;
+        return -1;
 
     if (virFileWriteStr(operation_path, vport_name, 0) == 0)
-        ret = 0;
+        return 0;
     else
         virReportSystemError(errno,
                              _("Write of '%s' to '%s' during "
                                "vport create/delete failed"),
                              vport_name, operation_path);
 
- cleanup:
-    VIR_FREE(vport_name);
-    VIR_FREE(operation_path);
-    return ret;
+    return -1;
 }
 
 
@@ -330,21 +309,18 @@ vhbaReadCompareWWN(const char *prefix,
                    const char *f_name,
                    const char *wwn)
 {
-    char *path;
-    char *buf = NULL;
     char *p;
-    int ret = -1;
+    VIR_AUTOFREE(char *) path = NULL;
+    VIR_AUTOFREE(char *) buf = NULL;
 
     if (virAsprintf(&path, "%s/%s/%s", prefix, d_name, f_name) < 0)
         return -1;
 
-    if (!virFileExists(path)) {
-        ret = 0;
-        goto cleanup;
-    }
+    if (!virFileExists(path))
+        return 0;
 
     if (virFileReadAll(path, 1024, &buf) < 0)
-        goto cleanup;
+        return -1;
 
     if ((p = strchr(buf, '\n')))
         *p = '\0';
@@ -354,15 +330,11 @@ vhbaReadCompareWWN(const char *prefix,
         p = buf;
 
     if (STRNEQ(wwn, p))
-        ret = 0;
+        return 0;
     else
-        ret = 1;
+        return 1;
 
- cleanup:
-    VIR_FREE(path);
-    VIR_FREE(buf);
-
-    return ret;
+    return -1;
 }
 
 /* virVHBAGetHostByWWN:
@@ -427,7 +399,6 @@ virVHBAGetHostByFabricWWN(const char *sysfs_prefix,
     const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_FC_HOST_PATH;
     struct dirent *entry = NULL;
     DIR *dir = NULL;
-    char *vport_create_path = NULL;
     char *ret = NULL;
 
     if (virDirOpen(&dir, prefix) < 0)
@@ -435,8 +406,7 @@ virVHBAGetHostByFabricWWN(const char *sysfs_prefix,
 
     while (virDirRead(dir, &entry, prefix) > 0) {
         int rc;
-
-        VIR_FREE(vport_create_path);
+        VIR_AUTOFREE(char *) vport_create_path = NULL;
 
         /* Existing vHBA's will have the same fabric_name, but won't
          * have the vport_create file - so we check for both */
@@ -460,7 +430,6 @@ virVHBAGetHostByFabricWWN(const char *sysfs_prefix,
 
  cleanup:
     VIR_DIR_CLOSE(dir);
-    VIR_FREE(vport_create_path);
     return ret;
 }
 
