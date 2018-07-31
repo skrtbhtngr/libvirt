@@ -701,8 +701,8 @@ catchXMLError(void *ctx, const char *msg ATTRIBUTE_UNUSED, ...)
     int domcode = VIR_FROM_XML;
 
     virBuffer buf = VIR_BUFFER_INITIALIZER;
-    char *contextstr = NULL;
-    char *pointerstr = NULL;
+    VIR_AUTOFREE(char *) contextstr = NULL;
+    VIR_AUTOFREE(char *) pointerstr = NULL;
 
 
     /* conditions for error printing */
@@ -768,9 +768,6 @@ catchXMLError(void *ctx, const char *msg ATTRIBUTE_UNUSED, ...)
                               contextstr,
                               pointerstr);
     }
-
-    VIR_FREE(contextstr);
-    VIR_FREE(pointerstr);
 }
 
 /**
