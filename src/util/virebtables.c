@@ -27,7 +27,6 @@
 
 #include "internal.h"
 #include "virebtables.h"
-#include "viralloc.h"
 #include "virerror.h"
 #include "virlog.h"
 #include "virstring.h"

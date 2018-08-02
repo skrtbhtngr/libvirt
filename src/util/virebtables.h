@@ -27,6 +27,7 @@
 # define __QEMUD_EBTABLES_H__
 
 # include "virmacaddr.h"
+# include "viralloc.h"
 
 typedef struct _ebtablesContext ebtablesContext;
 
@@ -41,5 +42,7 @@ int              ebtablesRemoveForwardAllowIn    (ebtablesContext *ctx,
                                                   const virMacAddr *mac);
 
 int              ebtablesAddForwardPolicyReject(ebtablesContext *ctx);
+
+VIR_DEFINE_AUTOPTR_FUNC(ebtablesContext, ebtablesContextFree)
 
 #endif /* __QEMUD_ebtabLES_H__ */
