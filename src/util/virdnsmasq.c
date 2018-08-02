@@ -41,7 +41,6 @@
 #include "virdnsmasq.h"
 #include "virutil.h"
 #include "vircommand.h"
-#include "viralloc.h"
 #include "virerror.h"
 #include "virlog.h"
 #include "virfile.h"
@@ -89,6 +88,8 @@ addnhostsFree(dnsmasqAddnHostsfile *addnhostsfile)
 
     VIR_FREE(addnhostsfile);
 }
+
+VIR_DEFINE_AUTOPTR_FUNC(dnsmasqAddnHostsfile, addnhostsFree)
 
 static int
 addnhostsAdd(dnsmasqAddnHostsfile *addnhostsfile,
@@ -298,6 +299,8 @@ hostsfileFree(dnsmasqHostsfile *hostsfile)
 
     VIR_FREE(hostsfile);
 }
+
+VIR_DEFINE_AUTOPTR_FUNC(dnsmasqHostsfile, hostsfileFree)
 
 /* Note:  There are many additional dhcp-host specifications
  * supported by dnsmasq.  There are only the basic ones.

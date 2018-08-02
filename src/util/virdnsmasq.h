@@ -26,6 +26,7 @@
 
 # include "virobject.h"
 # include "virsocketaddr.h"
+# include "viralloc.h"
 
 typedef struct
 {
@@ -119,4 +120,7 @@ unsigned long dnsmasqCapsGetVersion(dnsmasqCapsPtr caps);
     (dnsmasqCapsGetVersion(CAPS) >= \
      (DNSMASQ_RA_MAJOR_REQD * 1000000) + \
      (DNSMASQ_RA_MINOR_REQD * 1000))
+
+VIR_DEFINE_AUTOPTR_FUNC(dnsmasqContext, dnsmasqContextFree)
+
 #endif /* __DNSMASQ_H__ */
