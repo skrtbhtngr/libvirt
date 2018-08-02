@@ -96,9 +96,9 @@ addnhostsAdd(dnsmasqAddnHostsfile *addnhostsfile,
              virSocketAddr *ip,
              const char *name)
 {
-    char *ipstr = NULL;
     int idx = -1;
     size_t i;
+    VIR_AUTOFREE(char *) ipstr = NULL;
 
     if (!(ipstr = virSocketAddrFormat(ip)))
         return -1;
@@ -112,35 +112,29 @@ addnhostsAdd(dnsmasqAddnHostsfile *addnhostsfile,
 
     if (idx < 0) {
         if (VIR_REALLOC_N(addnhostsfile->hosts, addnhostsfile->nhosts + 1) < 0)
-            goto error;
+            return -1;
 
         idx = addnhostsfile->nhosts;
         if (VIR_ALLOC(addnhostsfile->hosts[idx].hostnames) < 0)
-            goto error;
+            return -1;
 
         if (VIR_STRDUP(addnhostsfile->hosts[idx].ip, ipstr) < 0)
-            goto error;
+            return -1;
 
         addnhostsfile->hosts[idx].nhostnames = 0;
         addnhostsfile->nhosts++;
     }
 
     if (VIR_REALLOC_N(addnhostsfile->hosts[idx].hostnames, addnhostsfile->hosts[idx].nhostnames + 1) < 0)
-        goto error;
+        return -1;
 
     if (VIR_STRDUP(addnhostsfile->hosts[idx].hostnames[addnhostsfile->hosts[idx].nhostnames],
                    name) < 0)
-        goto error;
-
-    VIR_FREE(ipstr);
+        return -1;
 
     addnhostsfile->hosts[idx].nhostnames++;
 
     return 0;
-
- error:
-    VIR_FREE(ipstr);
-    return -1;
 }
 
 static dnsmasqAddnHostsfile *
@@ -179,11 +173,10 @@ addnhostsWrite(const char *path,
                dnsmasqAddnHost *hosts,
                unsigned int nhosts)
 {
-    char *tmp;
     FILE *f;
     bool istmp = true;
     size_t i, j;
-    int rc = 0;
+    VIR_AUTOFREE(char *) tmp = NULL;
 
     /* even if there are 0 hosts, create a 0 length file, to allow
      * for runtime addition.
@@ -194,61 +187,50 @@ addnhostsWrite(const char *path,
 
     if (!(f = fopen(tmp, "w"))) {
         istmp = false;
-        if (!(f = fopen(path, "w"))) {
-            rc = -errno;
-            goto cleanup;
-        }
+        if (!(f = fopen(path, "w")))
+            return -errno;
     }
 
     for (i = 0; i < nhosts; i++) {
         if (fputs(hosts[i].ip, f) == EOF || fputc('\t', f) == EOF) {
-            rc = -errno;
             VIR_FORCE_FCLOSE(f);
 
             if (istmp)
                 unlink(tmp);
 
-            goto cleanup;
+            return -errno;
         }
 
         for (j = 0; j < hosts[i].nhostnames; j++) {
             if (fputs(hosts[i].hostnames[j], f) == EOF || fputc('\t', f) == EOF) {
-                rc = -errno;
                 VIR_FORCE_FCLOSE(f);
 
                 if (istmp)
                     unlink(tmp);
 
-                goto cleanup;
+                return -errno;
             }
         }
 
         if (fputc('\n', f) == EOF) {
-            rc = -errno;
             VIR_FORCE_FCLOSE(f);
 
             if (istmp)
                 unlink(tmp);
 
-            goto cleanup;
+            return -errno;
         }
     }
 
-    if (VIR_FCLOSE(f) == EOF) {
-        rc = -errno;
-        goto cleanup;
-    }
+    if (VIR_FCLOSE(f) == EOF)
+        return -errno;
 
     if (istmp && rename(tmp, path) < 0) {
-        rc = -errno;
         unlink(tmp);
-        goto cleanup;
+        return -errno;
     }
 
- cleanup:
-    VIR_FREE(tmp);
-
-    return rc;
+    return 0;
 }
 
 static int
@@ -313,9 +295,10 @@ hostsfileAdd(dnsmasqHostsfile *hostsfile,
              const char *id,
              bool ipv6)
 {
-    char *ipstr = NULL;
+    VIR_AUTOFREE(char *) ipstr = NULL;
+
     if (VIR_REALLOC_N(hostsfile->hosts, hostsfile->nhosts + 1) < 0)
-        goto error;
+        return -1;
 
     if (!(ipstr = virSocketAddrFormat(ip)))
         return -1;
@@ -325,38 +308,33 @@ hostsfileAdd(dnsmasqHostsfile *hostsfile,
         if (name && id) {
             if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host,
                             "id:%s,%s,[%s]", id, name, ipstr) < 0)
-                goto error;
+                return -1;
         } else if (name && !id) {
             if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host,
                             "%s,[%s]", name, ipstr) < 0)
-                goto error;
+                return -1;
         } else if (!name && id) {
             if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host,
                             "id:%s,[%s]", id, ipstr) < 0)
-                goto error;
+                return -1;
         }
     } else if (name && mac) {
         if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host, "%s,%s,%s",
                         mac, ipstr, name) < 0)
-            goto error;
+            return -1;
     } else if (name && !mac) {
         if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host, "%s,%s",
                         name, ipstr) < 0)
-            goto error;
+            return -1;
     } else {
         if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host, "%s,%s",
                         mac, ipstr) < 0)
-            goto error;
+            return -1;
     }
-    VIR_FREE(ipstr);
 
     hostsfile->nhosts++;
 
     return 0;
-
- error:
-    VIR_FREE(ipstr);
-    return -1;
 }
 
 static dnsmasqHostsfile *
@@ -394,11 +372,10 @@ hostsfileWrite(const char *path,
                dnsmasqDhcpHost *hosts,
                unsigned int nhosts)
 {
-    char *tmp;
     FILE *f;
     bool istmp = true;
     size_t i;
-    int rc = 0;
+    VIR_AUTOFREE(char *) tmp = NULL;
 
     /* even if there are 0 hosts, create a 0 length file, to allow
      * for runtime addition.
@@ -409,39 +386,30 @@ hostsfileWrite(const char *path,
 
     if (!(f = fopen(tmp, "w"))) {
         istmp = false;
-        if (!(f = fopen(path, "w"))) {
-            rc = -errno;
-            goto cleanup;
-        }
+        if (!(f = fopen(path, "w")))
+            return -errno;
     }
 
     for (i = 0; i < nhosts; i++) {
         if (fputs(hosts[i].host, f) == EOF || fputc('\n', f) == EOF) {
-            rc = -errno;
             VIR_FORCE_FCLOSE(f);
 
             if (istmp)
                 unlink(tmp);
 
-            goto cleanup;
+            return -errno;
         }
     }
 
-    if (VIR_FCLOSE(f) == EOF) {
-        rc = -errno;
-        goto cleanup;
-    }
+    if (VIR_FCLOSE(f) == EOF)
+        return -errno;
 
     if (istmp && rename(tmp, path) < 0) {
-        rc = -errno;
         unlink(tmp);
-        goto cleanup;
+        return -errno;
     }
 
- cleanup:
-    VIR_FREE(tmp);
-
-    return rc;
+    return 0;
 }
 
 static int
@@ -711,17 +679,12 @@ dnsmasqCapsSetFromBuffer(dnsmasqCapsPtr caps, const char *buf)
 static int
 dnsmasqCapsSetFromFile(dnsmasqCapsPtr caps, const char *path)
 {
-    int ret = -1;
-    char *buf = NULL;
+    VIR_AUTOFREE(char *) buf = NULL;
 
     if (virFileReadAll(path, 1024 * 1024, &buf) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = dnsmasqCapsSetFromBuffer(caps, buf);
-
- cleanup:
-    VIR_FREE(buf);
-    return ret;
+    return dnsmasqCapsSetFromBuffer(caps, buf);
 }
 
 static int
@@ -730,7 +693,9 @@ dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
     int ret = -1;
     struct stat sb;
     virCommandPtr cmd = NULL;
-    char *help = NULL, *version = NULL, *complete = NULL;
+    VIR_AUTOFREE(char *) help = NULL;
+    VIR_AUTOFREE(char *) version = NULL;
+    VIR_AUTOFREE(char *) complete = NULL;
 
     if (!caps || caps->noRefresh)
         return 0;
@@ -782,9 +747,6 @@ dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
 
  cleanup:
     virCommandFree(cmd);
-    VIR_FREE(help);
-    VIR_FREE(version);
-    VIR_FREE(complete);
     return ret;
 }
 
