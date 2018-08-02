@@ -56,17 +56,18 @@ enum {
 ebtablesContext *
 ebtablesContextNew(const char *driver)
 {
-    ebtablesContext *ctx = NULL;
+    ebtablesContext *tmp ATTRIBUTE_UNUSED = NULL;
+    VIR_AUTOPTR(ebtablesContext) ctx = NULL;
 
     if (VIR_ALLOC(ctx) < 0)
         return NULL;
 
-    if (virAsprintf(&ctx->chain, "libvirt_%s_FORWARD", driver) < 0) {
-        VIR_FREE(ctx);
+    if (virAsprintf(&ctx->chain, "libvirt_%s_FORWARD", driver) < 0)
         return NULL;
-    }
 
-    return ctx;
+    VIR_STEAL_PTR(tmp, ctx);
+
+    return tmp;
 }
 
 /**
@@ -88,8 +89,7 @@ ebtablesContextFree(ebtablesContext *ctx)
 int
 ebtablesAddForwardPolicyReject(ebtablesContext *ctx)
 {
-    virFirewallPtr fw = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virFirewall) fw = NULL;
 
     fw = virFirewallNew();
     virFirewallStartTransaction(fw, VIR_FIREWALL_TRANSACTION_IGNORE_ERRORS);
@@ -106,12 +106,9 @@ ebtablesAddForwardPolicyReject(ebtablesContext *ctx)
                        NULL);
 
     if (virFirewallApply(fw) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    virFirewallFree(fw);
-    return ret;
+    return 0;
 }
 
 
@@ -124,8 +121,7 @@ ebtablesForwardAllowIn(ebtablesContext *ctx,
                        const char *macaddr,
                        int action)
 {
-    virFirewallPtr fw = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virFirewall) fw = NULL;
 
     fw = virFirewallNew();
     virFirewallStartTransaction(fw, 0);
@@ -138,12 +134,9 @@ ebtablesForwardAllowIn(ebtablesContext *ctx,
                        NULL);
 
     if (virFirewallApply(fw) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    virFirewallFree(fw);
-    return ret;
+    return 0;
 }
 
 /**
