@@ -60,11 +60,10 @@ virFirmwareFreeList(virFirmwarePtr *firmwares, size_t nfirmwares)
 int
 virFirmwareParse(const char *str, virFirmwarePtr firmware)
 {
-    int ret = -1;
-    char **token;
+    VIR_AUTOPTR(virString) token = NULL;
 
     if (!(token = virStringSplit(str, ":", 0)))
-        goto cleanup;
+        return -1;
 
     if (token[0]) {
         virSkipSpaces((const char **) &token[0]);
@@ -78,17 +77,14 @@ virFirmwareParse(const char *str, virFirmwarePtr firmware)
         virReportError(VIR_ERR_CONF_SYNTAX,
                        _("Invalid nvram format: '%s'"),
                        str);
-        goto cleanup;
+        return -1;
     }
 
     if (VIR_STRDUP(firmware->name, token[0]) < 0 ||
         VIR_STRDUP(firmware->nvram, token[1]) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    virStringListFree(token);
-    return ret;
+    return 0;
 }
 
 
@@ -97,12 +93,11 @@ virFirmwareParseList(const char *list,
                      virFirmwarePtr **firmwares,
                      size_t *nfirmwares)
 {
-    int ret = -1;
-    char **token;
     size_t i, j;
+    VIR_AUTOPTR(virString) token = NULL;
 
     if (!(token = virStringSplit(list, ":", 0)))
-        goto cleanup;
+        return -1;
 
     for (i = 0; token[i]; i += 2) {
         if (!token[i] || !token[i + 1] ||
@@ -110,28 +105,25 @@ virFirmwareParseList(const char *list,
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("Invalid --with-loader-nvram list: %s"),
                            list);
-            goto cleanup;
+            return -1;
         }
     }
 
     if (i) {
         if (VIR_ALLOC_N(*firmwares, i / 2) < 0)
-            goto cleanup;
+            return -1;
         *nfirmwares = i / 2;
 
         for (j = 0; j < i / 2; j++) {
             virFirmwarePtr *fws = *firmwares;
 
             if (VIR_ALLOC(fws[j]) < 0)
-                goto cleanup;
+                return -1;
             if (VIR_STRDUP(fws[j]->name, token[2 * j]) < 0 ||
                 VIR_STRDUP(fws[j]->nvram, token[2 * j + 1]) < 0)
-                goto cleanup;
+                return -1;
         }
     }
 
-    ret = 0;
- cleanup:
-    virStringListFree(token);
-    return ret;
+    return 0;
 }
