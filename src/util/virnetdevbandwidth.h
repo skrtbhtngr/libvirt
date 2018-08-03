@@ -25,6 +25,7 @@
 
 # include "internal.h"
 # include "virmacaddr.h"
+# include "viralloc.h"
 
 typedef struct _virNetDevBandwidthRate virNetDevBandwidthRate;
 typedef virNetDevBandwidthRate *virNetDevBandwidthRatePtr;
@@ -78,4 +79,7 @@ int virNetDevBandwidthUpdateFilter(const char *ifname,
                                    unsigned int id)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2)
     ATTRIBUTE_RETURN_CHECK;
+
+VIR_DEFINE_AUTOPTR_FUNC(virNetDevBandwidth, virNetDevBandwidthFree)
+
 #endif /* __VIR_NETDEV_BANDWIDTH_H__ */

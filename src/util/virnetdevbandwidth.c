@@ -25,7 +25,6 @@
 
 #include "virnetdevbandwidth.h"
 #include "vircommand.h"
-#include "viralloc.h"
 #include "virerror.h"
 #include "virstring.h"
 #include "virutil.h"
