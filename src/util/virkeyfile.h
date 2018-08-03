@@ -25,6 +25,7 @@
 # define __VIR_KEYFILE_H__
 
 # include "internal.h"
+# include "viralloc.h"
 
 /**
  * virKeyFilePtr:
@@ -60,5 +61,7 @@ const char *virKeyFileGetValueString(virKeyFilePtr conf,
                                      const char *groupname,
                                      const char *valuename)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_NONNULL(3);
+
+VIR_DEFINE_AUTOPTR_FUNC(virKeyFile, virKeyFileFree)
 
 #endif /* __VIR_KEYFILE_H__ */
