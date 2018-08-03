@@ -437,8 +437,8 @@ virFDStreamThreadDoRead(virFDStreamDataPtr fdst,
     virFDStreamMsgPtr msg = NULL;
     int inData = 0;
     long long sectionLen = 0;
-    char *buf = NULL;
     ssize_t got;
+    VIR_AUTOFREE(char *) buf = NULL;
 
     if (sparse && *dataLen == 0) {
         if (virFileInData(fdin, &inData, &sectionLen) < 0)
@@ -502,7 +502,6 @@ virFDStreamThreadDoRead(virFDStreamDataPtr fdst,
     return got;
 
  error:
-    VIR_FREE(buf);
     virFDStreamMsgFree(msg);
     return -1;
 }
