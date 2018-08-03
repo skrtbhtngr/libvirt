@@ -95,10 +95,9 @@ virHostCPUGetStatsFreeBSD(int cpuNum,
                           int *nparams)
 {
     const char *sysctl_name;
-    long *cpu_times;
     struct clockinfo clkinfo;
     size_t i, j, cpu_times_size, clkinfo_size;
-    int cpu_times_num, offset, hz, stathz, ret = -1;
+    int cpu_times_num, offset, hz, stathz;
     struct field_cpu_map {
         const char *field;
         int idx[CPUSTATES];
@@ -109,6 +108,7 @@ virHostCPUGetStatsFreeBSD(int cpuNum,
         {VIR_NODE_CPU_STATS_INTR, {CP_INTR}},
         {NULL, {0}}
     };
+    VIR_AUTOFREE(long *) cpu_times = NULL;
 
     if ((*nparams) == 0) {
         *nparams = BSD_CPU_STATS_ALL;
@@ -154,13 +154,13 @@ virHostCPUGetStatsFreeBSD(int cpuNum,
     cpu_times_size = sizeof(long) * cpu_times_num * CPUSTATES;
 
     if (VIR_ALLOC_N(cpu_times, cpu_times_num * CPUSTATES) < 0)
-        goto cleanup;
+        return -1;
 
     if (sysctlbyname(sysctl_name, cpu_times, &cpu_times_size, NULL, 0) < 0) {
         virReportSystemError(errno,
                              _("sysctl failed for '%s'"),
                              sysctl_name);
-        goto cleanup;
+        return -1;
     }
 
     for (i = 0; cpu_map[i].field != NULL; i++) {
@@ -170,7 +170,7 @@ virHostCPUGetStatsFreeBSD(int cpuNum,
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("Field '%s' too long for destination"),
                            cpu_map[i].field);
-            goto cleanup;
+            return -1;
         }
 
         param->value = 0;
@@ -178,12 +178,7 @@ virHostCPUGetStatsFreeBSD(int cpuNum,
             param->value += cpu_times[offset + cpu_map[i].idx[j]] * TICK_TO_NSEC;
     }
 
-    ret = 0;
-
- cleanup:
-    VIR_FREE(cpu_times);
-
-    return ret;
+    return 0;
 }
 
 #endif /* __FreeBSD__ */
@@ -207,26 +202,23 @@ virHostCPUCountThreadSiblings(unsigned int cpu)
 {
     unsigned long ret = 0;
     int rv = -1;
-    char *str = NULL;
     size_t i;
+    VIR_AUTOFREE(char *) str = NULL;
 
     rv = virFileReadValueString(&str,
                                 "%s/cpu/cpu%u/topology/thread_siblings",
                                 SYSFS_SYSTEM_PATH, cpu);
-    if (rv == -2) {
-        ret = 1;
-        goto cleanup;
-    }
+    if (rv == -2)
+        return 1;
+
     if (rv < 0)
-        goto cleanup;
+        return -1;
 
     for (i = 0; str[i] != '\0'; i++) {
         if (c_isxdigit(str[i]))
             ret += count_one_bits(virHexToBin(str[i]));
     }
 
- cleanup:
-    VIR_FREE(str);
     return ret;
 }
 
@@ -316,7 +308,6 @@ virHostCPUParseNode(const char *node,
     struct dirent *cpudirent = NULL;
     virBitmapPtr node_cpus_map = NULL;
     virBitmapPtr sockets_map = NULL;
-    virBitmapPtr *cores_maps = NULL;
     int npresent_cpus = virBitmapSize(present_cpus_map);
     unsigned int sock_max = 0;
     unsigned int sock;
@@ -325,6 +316,7 @@ virHostCPUParseNode(const char *node,
     int siblings;
     unsigned int cpu;
     int direrr;
+    VIR_AUTOFREE(virBitmapPtr *) cores_maps = NULL;
 
     *threads = 0;
     *cores = 0;
@@ -467,7 +459,6 @@ virHostCPUParseNode(const char *node,
     if (cores_maps)
         for (i = 0; i < sock_max; i++)
             virBitmapFree(cores_maps[i]);
-    VIR_FREE(cores_maps);
     virBitmapFree(sockets_map);
     virBitmapFree(node_cpus_map);
 
@@ -637,9 +628,9 @@ virHostCPUGetInfoPopulateLinux(FILE *cpuinfo,
     int threads_per_subcore = 0;
     unsigned int node;
     int ret = -1;
-    char *sysfs_nodedir = NULL;
-    char *sysfs_cpudir = NULL;
     int direrr;
+    VIR_AUTOFREE(char *) sysfs_nodedir = NULL;
+    VIR_AUTOFREE(char *) sysfs_cpudir = NULL;
 
     *mhz = 0;
     *cpus = *nodes = *sockets = *cores = *threads = 0;
@@ -798,8 +789,6 @@ virHostCPUGetInfoPopulateLinux(FILE *cpuinfo,
     VIR_DIR_CLOSE(nodedir);
     virBitmapFree(present_cpus_map);
     virBitmapFree(online_cpus_map);
-    VIR_FREE(sysfs_nodedir);
-    VIR_FREE(sysfs_cpudir);
     return ret;
 }
 
@@ -884,9 +873,9 @@ virHostCPUGetStatsLinux(FILE *procstat,
 static int
 virHostCPUParseCountLinux(void)
 {
-    char *str = NULL;
     char *tmp;
     int ret = -1;
+    VIR_AUTOFREE(char *) str = NULL;
 
     if (virFileReadValueString(&str, "%s/cpu/present", SYSFS_SYSTEM_PATH) < 0)
         return -1;
@@ -897,14 +886,11 @@ virHostCPUParseCountLinux(void)
             !strchr(",-", *tmp)) {
             virReportError(VIR_ERR_NO_SUPPORT,
                            _("failed to parse %s"), str);
-            ret = -1;
-            goto cleanup;
+            return -1;
         }
     } while (*tmp++ && *tmp);
     ret++;
 
- cleanup:
-    VIR_FREE(str);
     return ret;
 }
 #endif
@@ -1253,9 +1239,9 @@ virHostCPUGetKVMMaxVCPUs(void)
 unsigned int
 virHostCPUGetMicrocodeVersion(void)
 {
-    char *outbuf = NULL;
     char *cur;
     unsigned int version = 0;
+    VIR_AUTOFREE(char *) outbuf = NULL;
 
     if (virFileReadHeaderQuiet(CPUINFO_PATH, 4096, &outbuf) < 0) {
         char ebuf[1024];
@@ -1267,16 +1253,15 @@ virHostCPUGetMicrocodeVersion(void)
     /* Account for format 'microcode    : XXXX'*/
     if (!(cur = strstr(outbuf, "microcode")) ||
         !(cur = strchr(cur, ':')))
-        goto cleanup;
+        return 0;
+
     cur++;
 
     /* Linux places the microcode revision in a 32-bit integer, so
      * ui is fine for us too.  */
     if (virStrToLong_ui(cur, &cur, 0, &version) < 0)
-        goto cleanup;
+        return 0;
 
- cleanup:
-    VIR_FREE(outbuf);
     return version;
 }
 
