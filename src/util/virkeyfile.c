@@ -143,12 +143,11 @@ static int virKeyFileParseGroup(virKeyFileParserCtxtPtr ctxt)
 
 static int virKeyFileParseValue(virKeyFileParserCtxtPtr ctxt)
 {
-    int ret = -1;
     const char *keystart;
     const char *valuestart;
-    char *key = NULL;
     char *value = NULL;
     size_t len;
+    VIR_AUTOFREE(char *) key = NULL;
 
     if (!ctxt->groupname || !ctxt->group) {
         virKeyFileError(ctxt, VIR_ERR_CONF_SYNTAX, "value found before first group");
@@ -172,26 +171,22 @@ static int virKeyFileParseValue(virKeyFileParserCtxtPtr ctxt)
         ctxt->cur++;
     if (!(IS_EOF || IS_EOL(CUR))) {
         virKeyFileError(ctxt, VIR_ERR_CONF_SYNTAX, "unexpected end of value");
-        goto cleanup;
+        return -1;
     }
     len = ctxt->cur - valuestart;
     if (IS_EOF && !IS_EOL(CUR))
         len++;
     if (VIR_STRNDUP(value, valuestart, len) < 0)
-        goto cleanup;
+        return -1;
 
     if (virHashAddEntry(ctxt->group, key, value) < 0) {
         VIR_FREE(value);
-        goto cleanup;
+        return -1;
     }
 
     NEXT;
 
-    ret = 0;
-
- cleanup:
-    VIR_FREE(key);
-    return ret;
+    return 0;
 }
 
 static int virKeyFileParseComment(virKeyFileParserCtxtPtr ctxt)
@@ -298,18 +293,13 @@ virKeyFilePtr virKeyFileNew(void)
 int virKeyFileLoadFile(virKeyFilePtr conf,
                        const char *filename)
 {
-    char *data = NULL;
     ssize_t len;
-    int ret;
+    VIR_AUTOFREE(char *) data = NULL;
 
     if ((len = virFileReadAll(filename, MAX_CONFIG_FILE_SIZE, &data)) < 0)
         return -1;
 
-    ret = virKeyFileParse(conf, filename, data, len);
-
-    VIR_FREE(data);
-
-    return ret;
+    return virKeyFileParse(conf, filename, data, len);
 }
 
 
