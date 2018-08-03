@@ -105,10 +105,11 @@ virNetDevBandwidthManipulateFilter(const char *ifname,
                                    bool create_new)
 {
     int ret = -1;
-    char *filter_id = NULL;
     virCommandPtr cmd = NULL;
     unsigned char ifmac[VIR_MAC_BUFLEN];
-    char *mac[2] = {NULL, NULL};
+    VIR_AUTOFREE(char *) filter_id = NULL;
+    VIR_AUTOFREE(char *) mac1 = NULL;
+    VIR_AUTOFREE(char *) mac2 = NULL;
 
     if (!(remove_old || create_new)) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
@@ -135,9 +136,9 @@ virNetDevBandwidthManipulateFilter(const char *ifname,
     if (create_new) {
         virMacAddrGetRaw(ifmac_ptr, ifmac);
 
-        if (virAsprintf(&mac[0], "0x%02x%02x%02x%02x", ifmac[2],
+        if (virAsprintf(&mac1, "0x%02x%02x%02x%02x", ifmac[2],
                         ifmac[3], ifmac[4], ifmac[5]) < 0 ||
-            virAsprintf(&mac[1], "0x%02x%02x", ifmac[0], ifmac[1]) < 0)
+            virAsprintf(&mac2, "0x%02x%02x", ifmac[0], ifmac[1]) < 0)
             goto cleanup;
 
         virCommandFree(cmd);
@@ -150,8 +151,8 @@ virNetDevBandwidthManipulateFilter(const char *ifname,
         virCommandAddArgList(cmd, "filter", "add", "dev", ifname, "protocol", "ip",
                              "prio", "2", "handle", filter_id, "u32",
                              "match", "u16", "0x0800", "0xffff", "at", "-2",
-                             "match", "u32", mac[0], "0xffffffff", "at", "-12",
-                             "match", "u16", mac[1], "0xffff", "at", "-14",
+                             "match", "u32", mac1, "0xffffffff", "at", "-12",
+                             "match", "u16", mac2, "0xffff", "at", "-14",
                              "flowid", class_id, NULL);
 
         if (virCommandRun(cmd, NULL) < 0)
@@ -160,9 +161,6 @@ virNetDevBandwidthManipulateFilter(const char *ifname,
 
     ret = 0;
  cleanup:
-    VIR_FREE(mac[1]);
-    VIR_FREE(mac[0]);
-    VIR_FREE(filter_id);
     virCommandFree(cmd);
     return ret;
 }
@@ -200,9 +198,6 @@ virNetDevBandwidthSet(const char *ifname,
     int ret = -1;
     virNetDevBandwidthRatePtr rx = NULL, tx = NULL; /* From domain POV */
     virCommandPtr cmd = NULL;
-    char *average = NULL;
-    char *peak = NULL;
-    char *burst = NULL;
 
     if (!bandwidth) {
         /* nothing to be enabled */
@@ -235,6 +230,10 @@ virNetDevBandwidthSet(const char *ifname,
     virNetDevBandwidthClear(ifname);
 
     if (tx && tx->average) {
+        VIR_AUTOFREE(char *) average = NULL;
+        VIR_AUTOFREE(char *) peak = NULL;
+        VIR_AUTOFREE(char *) burst = NULL;
+
         if (virAsprintf(&average, "%llukbps", tx->average) < 0)
             goto cleanup;
         if (tx->peak &&
@@ -358,13 +357,12 @@ virNetDevBandwidthSet(const char *ifname,
 
         if (virCommandRun(cmd, NULL) < 0)
             goto cleanup;
-
-        VIR_FREE(average);
-        VIR_FREE(peak);
-        VIR_FREE(burst);
     }
 
     if (rx) {
+        VIR_AUTOFREE(char *) average = NULL;
+        VIR_AUTOFREE(char *) burst = NULL;
+
         if (virAsprintf(&average, "%llukbps", rx->average) < 0)
             goto cleanup;
         if (virAsprintf(&burst, "%llukb", rx->burst ? rx->burst : rx->average) < 0)
@@ -395,9 +393,6 @@ virNetDevBandwidthSet(const char *ifname,
 
  cleanup:
     virCommandFree(cmd);
-    VIR_FREE(average);
-    VIR_FREE(peak);
-    VIR_FREE(burst);
     return ret;
 }
 
@@ -557,11 +552,11 @@ virNetDevBandwidthPlug(const char *brname,
 {
     int ret = -1;
     virCommandPtr cmd = NULL;
-    char *class_id = NULL;
-    char *qdisc_id = NULL;
-    char *floor = NULL;
-    char *ceil = NULL;
     char ifmacStr[VIR_MAC_STRING_BUFLEN];
+    VIR_AUTOFREE(char *) class_id = NULL;
+    VIR_AUTOFREE(char *) qdisc_id = NULL;
+    VIR_AUTOFREE(char *) floor = NULL;
+    VIR_AUTOFREE(char *) ceil = NULL;
 
     if (id <= 2) {
         virReportError(VIR_ERR_INTERNAL_ERROR, _("Invalid class ID %d"), id);
@@ -611,10 +606,6 @@ virNetDevBandwidthPlug(const char *brname,
     ret = 0;
 
  cleanup:
-    VIR_FREE(ceil);
-    VIR_FREE(floor);
-    VIR_FREE(qdisc_id);
-    VIR_FREE(class_id);
     virCommandFree(cmd);
     return ret;
 }
@@ -635,8 +626,8 @@ virNetDevBandwidthUnplug(const char *brname,
     int ret = -1;
     int cmd_ret = 0;
     virCommandPtr cmd = NULL;
-    char *class_id = NULL;
-    char *qdisc_id = NULL;
+    VIR_AUTOFREE(char *) class_id = NULL;
+    VIR_AUTOFREE(char *) qdisc_id = NULL;
 
     if (id <= 2) {
         virReportError(VIR_ERR_INTERNAL_ERROR, _("Invalid class ID %d"), id);
@@ -671,8 +662,6 @@ virNetDevBandwidthUnplug(const char *brname,
     ret = 0;
 
  cleanup:
-    VIR_FREE(qdisc_id);
-    VIR_FREE(class_id);
     virCommandFree(cmd);
     return ret;
 }
@@ -699,9 +688,9 @@ virNetDevBandwidthUpdateRate(const char *ifname,
 {
     int ret = -1;
     virCommandPtr cmd = NULL;
-    char *class_id = NULL;
-    char *rate = NULL;
-    char *ceil = NULL;
+    VIR_AUTOFREE(char *) class_id = NULL;
+    VIR_AUTOFREE(char *) rate = NULL;
+    VIR_AUTOFREE(char *) ceil = NULL;
 
     if (virAsprintf(&class_id, "1:%x", id) < 0 ||
         virAsprintf(&rate, "%llukbps", new_rate) < 0 ||
@@ -723,9 +712,6 @@ virNetDevBandwidthUpdateRate(const char *ifname,
 
  cleanup:
     virCommandFree(cmd);
-    VIR_FREE(class_id);
-    VIR_FREE(rate);
-    VIR_FREE(ceil);
     return ret;
 }
 
@@ -751,18 +737,14 @@ virNetDevBandwidthUpdateFilter(const char *ifname,
                                const virMacAddr *ifmac_ptr,
                                unsigned int id)
 {
-    int ret = -1;
-    char *class_id = NULL;
+    VIR_AUTOFREE(char *) class_id = NULL;
 
     if (virAsprintf(&class_id, "1:%x", id) < 0)
-        goto cleanup;
+        return -1;
 
     if (virNetDevBandwidthManipulateFilter(ifname, ifmac_ptr, id,
                                            class_id, true, true) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    VIR_FREE(class_id);
-    return ret;
+    return 0;
 }
