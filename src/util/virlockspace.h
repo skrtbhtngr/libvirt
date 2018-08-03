@@ -24,6 +24,7 @@
 
 # include "internal.h"
 # include "virjson.h"
+# include "viralloc.h"
 
 typedef struct _virLockSpace virLockSpace;
 typedef virLockSpace *virLockSpacePtr;
@@ -58,5 +59,7 @@ int virLockSpaceReleaseResource(virLockSpacePtr lockspace,
 
 int virLockSpaceReleaseResourcesForOwner(virLockSpacePtr lockspace,
                                          pid_t owner);
+
+VIR_DEFINE_AUTOPTR_FUNC(virLockSpace, virLockSpaceFree)
 
 #endif /* __VIR_LOCK_SPACE_H__ */

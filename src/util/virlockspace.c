@@ -21,19 +21,18 @@
 
 #include <config.h>
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
 #include "virlockspace.h"
 #include "virlog.h"
-#include "viralloc.h"
 #include "virerror.h"
 #include "virutil.h"
 #include "virfile.h"
 #include "virhash.h"
 #include "virthread.h"
 #include "virstring.h"
-
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
 
 #define VIR_FROM_THIS VIR_FROM_LOCKSPACE
 
@@ -110,6 +109,8 @@ static void virLockSpaceResourceFree(virLockSpaceResourcePtr res)
     VIR_FREE(res->name);
     VIR_FREE(res);
 }
+
+VIR_DEFINE_AUTOPTR_FUNC(virLockSpaceResource, virLockSpaceResourceFree)
 
 
 static virLockSpaceResourcePtr
