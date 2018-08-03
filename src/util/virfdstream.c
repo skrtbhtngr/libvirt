@@ -208,6 +208,8 @@ virFDStreamMsgFree(virFDStreamMsgPtr msg)
     VIR_FREE(msg);
 }
 
+VIR_DEFINE_AUTOPTR_FUNC(virFDStreamMsg, virFDStreamMsgFree)
+
 
 static void
 virFDStreamMsgQueueFree(virFDStreamMsgPtr *queue)
@@ -222,6 +224,8 @@ virFDStreamMsgQueueFree(virFDStreamMsgPtr *queue)
 
     *queue = NULL;
 }
+
+VIR_DEFINE_AUTOPTR_FUNC(virFDStreamMsgPtr, virFDStreamMsgQueueFree)
 
 
 static int virFDStreamRemoveCallback(virStreamPtr stream)
@@ -414,6 +418,8 @@ virFDStreamThreadDataFree(virFDStreamThreadDataPtr data)
     VIR_FREE(data->fdoutname);
     VIR_FREE(data);
 }
+
+VIR_DEFINE_AUTOPTR_FUNC(virFDStreamThreadData, virFDStreamThreadDataFree)
 
 
 static ssize_t
