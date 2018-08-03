@@ -136,11 +136,11 @@ static int
 virMacMapLoadFile(virMacMapPtr mgr,
                   const char *file)
 {
-    char *map_str = NULL;
     virJSONValuePtr map = NULL;
     int map_str_len = 0;
     size_t i;
     int ret = -1;
+    VIR_AUTOFREE(char *) map_str = NULL;
 
     if (virFileExists(file) &&
         (map_str_len = virFileReadAll(file,
@@ -196,7 +196,6 @@ virMacMapLoadFile(virMacMapPtr mgr,
 
     ret = 0;
  cleanup:
-    VIR_FREE(map_str);
     virJSONValueFree(map);
     return ret;
 }
@@ -271,19 +270,15 @@ static int
 virMacMapWriteFileLocked(virMacMapPtr mgr,
                          const char *file)
 {
-    char *str;
-    int ret = -1;
+    VIR_AUTOFREE(char *) str = NULL;
 
     if (virMacMapDumpStrLocked(mgr, &str) < 0)
-        goto cleanup;
+        return -1;
 
     if (virFileRewriteStr(file, 0644, str) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    VIR_FREE(str);
-    return ret;
+    return 0;
 }
 
 
