@@ -413,7 +413,8 @@ int virNetDevVPortProfileMerge3(virNetDevVPortProfilePtr *result,
                                 virNetDevVPortProfilePtr fromNetwork,
                                 virNetDevVPortProfilePtr fromPortgroup)
 {
-    int ret = -1;
+    VIR_AUTOFREE(virNetDevVPortProfilePtr) tmpResult = NULL;
+
     *result = NULL;
 
     if ((!fromInterface || (fromInterface->virtPortType == VIR_NETDEV_VPORT_PROFILE_NONE)) &&
@@ -423,26 +424,23 @@ int virNetDevVPortProfileMerge3(virNetDevVPortProfilePtr *result,
     }
 
     /* at least one of the source profiles is non-empty */
-    if (VIR_ALLOC(*result) < 0)
-        return ret;
+    if (VIR_ALLOC(tmpResult) < 0)
+        return -1;
 
     /* start with the interface's profile. There are no pointers in a
      * virtualPortProfile, so a shallow copy is sufficient.
      */
     if (fromInterface)
-        **result = *fromInterface;
+        *tmpResult = *fromInterface;
 
-    if (virNetDevVPortProfileMerge(*result, fromNetwork) < 0)
-        goto error;
-    if (virNetDevVPortProfileMerge(*result, fromPortgroup) < 0)
-        goto error;
+    if (virNetDevVPortProfileMerge(tmpResult, fromNetwork) < 0)
+        return -1;
+    if (virNetDevVPortProfileMerge(tmpResult, fromPortgroup) < 0)
+        return -1;
 
-    ret = 0;
+    VIR_STEAL_PTR(*result, tmpResult);
 
- error:
-    if (ret < 0)
-        VIR_FREE(*result);
-    return ret;
+    return 0;
 }
 
 void
@@ -646,7 +644,6 @@ virNetDevVPortProfileOpSetLink(const char *ifname, int ifindex,
                                uint8_t op)
 {
     int rc = -1;
-    struct nlmsghdr *resp = NULL;
     struct nlmsgerr *err;
     struct ifinfomsg ifinfo = {
         .ifi_family = AF_UNSPEC,
@@ -661,6 +658,7 @@ virNetDevVPortProfileOpSetLink(const char *ifname, int ifindex,
     char hostUUIDStr[VIR_UUID_STRING_BUFLEN];
     char instanceUUIDStr[VIR_UUID_STRING_BUFLEN];
     const char *opName;
+    VIR_AUTOFREE(struct nlmsghdr *) resp = NULL;
 
     switch (op) {
     case PORT_REQUEST_PREASSOCIATE:
@@ -833,7 +831,6 @@ virNetDevVPortProfileOpSetLink(const char *ifname, int ifindex,
     rc = 0;
  cleanup:
     nlmsg_free(nl_msg);
-    VIR_FREE(resp);
     return rc;
 
  malformed_resp:
@@ -872,7 +869,6 @@ virNetDevVPortProfileGetNthParent(const char *ifname, int ifindex, unsigned int 
                                   unsigned int *nth)
 {
     int rc = -1;
-    void *nlData = NULL;
     struct nlattr *tb[IFLA_MAX + 1] = { NULL, };
     bool end = false;
     size_t i = 0;
@@ -883,7 +879,8 @@ virNetDevVPortProfileGetNthParent(const char *ifname, int ifindex, unsigned int 
         return -1;
 
     while (!end && i <= nthParent) {
-        VIR_FREE(nlData);
+        VIR_AUTOFREE(void *) nlData = NULL;
+
         rc = virNetlinkDumpLink(ifname, ifindex, &nlData, tb, 0, 0);
         if (rc < 0)
             break;
@@ -893,8 +890,7 @@ virNetDevVPortProfileGetNthParent(const char *ifname, int ifindex, unsigned int 
                           IFNAMSIZ) < 0) {
                 virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                                _("buffer for root interface name is too small"));
-                rc = -1;
-                goto cleanup;
+                return -1;
             }
             *parent_ifindex = ifindex;
         }
@@ -911,8 +907,6 @@ virNetDevVPortProfileGetNthParent(const char *ifname, int ifindex, unsigned int 
 
     *nth = i - 1;
 
- cleanup:
-    VIR_FREE(nlData);
     return rc;
 }
 
@@ -934,7 +928,6 @@ virNetDevVPortProfileOpCommon(const char *ifname, int ifindex,
     int rc;
     int src_pid = 0;
     uint32_t dst_pid = 0;
-    void *nlData = NULL;
     struct nlattr *tb[IFLA_MAX + 1] = { NULL, };
     int repeats = STATUS_POLL_TIMEOUT_USEC / STATUS_POLL_INTERVL_USEC;
     uint16_t status = 0;
@@ -962,20 +955,20 @@ virNetDevVPortProfileOpCommon(const char *ifname, int ifindex,
     if (!nltarget_kernel &&
         (((src_pid = virNetlinkEventServiceLocalPid(NETLINK_ROUTE)) < 0) ||
          ((dst_pid = virNetDevVPortProfileGetLldpadPid()) == 0))) {
-        rc = -1;
-        goto cleanup;
+        return -1;
     }
 
     while (--repeats >= 0) {
-        VIR_FREE(nlData);
+        VIR_AUTOFREE(void *) nlData = NULL;
+
         rc = virNetlinkDumpLink(NULL, ifindex, &nlData, tb, src_pid, dst_pid);
         if (rc < 0)
-            goto cleanup;
+            return rc;
 
         rc = virNetDevVPortProfileGetStatus(tb, vf, instanceId, nltarget_kernel,
                                             is8021Qbg, &status);
         if (rc < 0)
-            goto cleanup;
+            return rc;
         if (status == PORT_PROFILE_RESPONSE_SUCCESS ||
             status == PORT_VDP_RESPONSE_SUCCESS) {
             break;
@@ -999,8 +992,6 @@ virNetDevVPortProfileOpCommon(const char *ifname, int ifindex,
         rc = -2;
     }
 
- cleanup:
-    VIR_FREE(nlData);
     return rc;
 }
 
@@ -1115,45 +1106,39 @@ virNetDevVPortProfileOp8021Qbh(const char *ifname,
                                enum virNetDevVPortProfileLinkOp virtPortOp)
 {
     int rc = 0;
-    char *physfndev = NULL;
     unsigned char hostuuid[VIR_UUID_BUFLEN];
     bool nltarget_kernel = true;
     int ifindex;
     int vlanid = -1;
     bool is_vf = false;
+    VIR_AUTOFREE(char *) physfndev = NULL;
 
     if (vf == -1) {
         int isvf_ret = virNetDevIsVirtualFunction(ifname);
 
         if (isvf_ret == -1)
-            goto cleanup;
+            return 0;
         is_vf = !!isvf_ret;
     }
 
     if (is_vf) {
-        if (virNetDevGetVirtualFunctionInfo(ifname, &physfndev, &vf) < 0) {
-            rc = -1;
-            goto cleanup;
-        }
+        if (virNetDevGetVirtualFunctionInfo(ifname, &physfndev, &vf) < 0)
+            return -1;
     } else {
-        if (VIR_STRDUP(physfndev, ifname) < 0) {
-            rc = -1;
-            goto cleanup;
-        }
+        if (VIR_STRDUP(physfndev, ifname) < 0)
+            return -1;
     }
 
     rc = virNetDevGetIndex(physfndev, &ifindex);
     if (rc < 0)
-        goto cleanup;
+        return rc;
 
     switch (virtPortOp) {
     case VIR_NETDEV_VPORT_PROFILE_LINK_OP_PREASSOCIATE_RR:
     case VIR_NETDEV_VPORT_PROFILE_LINK_OP_ASSOCIATE:
         errno = virGetHostUUID(hostuuid);
-        if (errno) {
-            rc = -1;
-            goto cleanup;
-        }
+        if (errno)
+            return -1;
 
         rc = virNetDevVPortProfileOpCommon(NULL, ifindex,
                                            nltarget_kernel,
@@ -1209,8 +1194,6 @@ virNetDevVPortProfileOp8021Qbh(const char *ifname,
         break;
     }
 
- cleanup:
-    VIR_FREE(physfndev);
     return rc;
 }
 
