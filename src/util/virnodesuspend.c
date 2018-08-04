@@ -72,8 +72,7 @@ static void virNodeSuspendUnlock(void)
  */
 static int virNodeSuspendSetNodeWakeup(unsigned long long alarmTime)
 {
-    virCommandPtr setAlarmCmd;
-    int ret = -1;
+    VIR_AUTOPTR(virCommand) setAlarmCmd = NULL;
 
     if (alarmTime < MIN_TIME_REQ_FOR_SUSPEND) {
         virReportError(VIR_ERR_INVALID_ARG,
@@ -86,13 +85,9 @@ static int virNodeSuspendSetNodeWakeup(unsigned long long alarmTime)
     virCommandAddArgFormat(setAlarmCmd, "%lld", alarmTime);
 
     if (virCommandRun(setAlarmCmd, NULL) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
-
- cleanup:
-    virCommandFree(setAlarmCmd);
-    return ret;
+    return 0;
 }
 
 /**
@@ -109,7 +104,9 @@ static int virNodeSuspendSetNodeWakeup(unsigned long long alarmTime)
  */
 static void virNodeSuspendHelper(void *cmdString)
 {
-    virCommandPtr suspendCmd = virCommandNew((const char *)cmdString);
+    VIR_AUTOPTR(virCommand) suspendCmd = NULL;
+
+    suspendCmd = virCommandNew((const char *)cmdString);
 
     /*
      * Delay for sometime so that the function virNodeSuspend()
@@ -118,8 +115,6 @@ static void virNodeSuspendHelper(void *cmdString)
     sleep(SUSPEND_DELAY);
     if (virCommandRun(suspendCmd, NULL) < 0)
         VIR_WARN("Failed to suspend the host");
-
-    virCommandFree(suspendCmd);
 
     /*
      * Now that we have resumed from suspend or the suspend failed,
@@ -238,9 +233,8 @@ int virNodeSuspend(unsigned int target,
 static int
 virNodeSuspendSupportsTargetPMUtils(unsigned int target, bool *supported)
 {
-    virCommandPtr cmd;
+    VIR_AUTOPTR(virCommand) cmd = NULL;
     int status;
-    int ret = -1;
 
     *supported = false;
 
@@ -255,22 +249,18 @@ virNodeSuspendSupportsTargetPMUtils(unsigned int target, bool *supported)
         cmd = virCommandNewArgList("pm-is-supported", "--suspend-hybrid", NULL);
         break;
     default:
-        return ret;
+        return -1;
     }
 
     if (virCommandRun(cmd, &status) < 0)
-        goto cleanup;
+        return -1;
 
    /*
     * Check return code of command == 0 for success
     * (i.e., the PM capability is supported)
     */
     *supported = (status == 0);
-    ret = 0;
-
- cleanup:
-    virCommandFree(cmd);
-    return ret;
+    return 0;
 }
 #else /* ! WITH_PM_UTILS */
 static int
