@@ -1242,20 +1242,21 @@ static void ignoreRNGError(void *ctx ATTRIBUTE_UNUSED,
 virXMLValidatorPtr
 virXMLValidatorInit(const char *schemafile)
 {
-    virXMLValidatorPtr validator = NULL;
+    virXMLValidatorPtr tmp = NULL;
+    VIR_AUTOPTR(virXMLValidator) validator = NULL;
 
     if (VIR_ALLOC(validator) < 0)
         return NULL;
 
     if (VIR_STRDUP(validator->schemafile, schemafile) < 0)
-        goto error;
+        return NULL;
 
     if (!(validator->rngParser =
               xmlRelaxNGNewParserCtxt(validator->schemafile))) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("Unable to create RNG parser for %s"),
                        validator->schemafile);
-        goto error;
+        return NULL;
     }
 
     xmlRelaxNGSetParserErrors(validator->rngParser,
@@ -1268,25 +1269,24 @@ virXMLValidatorInit(const char *schemafile)
                        _("Unable to parse RNG %s: %s"),
                        validator->schemafile,
                        virBufferCurrentContent(&validator->buf));
-        goto error;
+        return NULL;
     }
 
     if (!(validator->rngValid = xmlRelaxNGNewValidCtxt(validator->rng))) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("Unable to create RNG validation context %s"),
                        validator->schemafile);
-        goto error;
+        return NULL;
     }
 
     xmlRelaxNGSetValidErrors(validator->rngValid,
                              catchRNGError,
                              ignoreRNGError,
                              &validator->buf);
-    return validator;
 
- error:
-    virXMLValidatorFree(validator);
-    return NULL;
+    VIR_STEAL_PTR(tmp, validator);
+
+    return tmp;
 }
 
 
@@ -1315,19 +1315,15 @@ int
 virXMLValidateAgainstSchema(const char *schemafile,
                             xmlDocPtr doc)
 {
-    virXMLValidatorPtr validator = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virXMLValidator) validator = NULL;
 
     if (!(validator = virXMLValidatorInit(schemafile)))
         return -1;
 
     if (virXMLValidatorValidate(validator, doc) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    virXMLValidatorFree(validator);
-    return ret;
+    return 0;
 }
 
 
