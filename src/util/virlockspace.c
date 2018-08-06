@@ -119,8 +119,9 @@ virLockSpaceResourceNew(virLockSpacePtr lockspace,
                         unsigned int flags,
                         pid_t owner)
 {
-    virLockSpaceResourcePtr res;
     bool shared = !!(flags & VIR_LOCK_SPACE_ACQUIRE_SHARED);
+    virLockSpaceResourcePtr tmpRes;
+    VIR_AUTOPTR(virLockSpaceResource) res = NULL;
 
     if (VIR_ALLOC(res) < 0)
         return NULL;
@@ -129,10 +130,10 @@ virLockSpaceResourceNew(virLockSpacePtr lockspace,
     res->flags = flags;
 
     if (VIR_STRDUP(res->name, resname) < 0)
-        goto error;
+        return NULL;
 
     if (!(res->path = virLockSpaceGetResourcePath(lockspace, resname)))
-        goto error;
+        return NULL;
 
     if (flags & VIR_LOCK_SPACE_ACQUIRE_AUTOCREATE) {
         while (1) {
@@ -141,21 +142,21 @@ virLockSpaceResourceNew(virLockSpacePtr lockspace,
                 virReportSystemError(errno,
                                      _("Unable to open/create resource %s"),
                                      res->path);
-                goto error;
+                return NULL;
             }
 
             if (virSetCloseExec(res->fd) < 0) {
                 virReportSystemError(errno,
                                      _("Failed to set close-on-exec flag '%s'"),
                                      res->path);
-                goto error;
+                return NULL;
             }
 
             if (fstat(res->fd, &b) < 0) {
                 virReportSystemError(errno,
                                      _("Unable to check status of pid file '%s'"),
                                      res->path);
-                goto error;
+                return NULL;
             }
 
             if (virFileLock(res->fd, shared, 0, 1, false) < 0) {
@@ -168,7 +169,7 @@ virLockSpaceResourceNew(virLockSpacePtr lockspace,
                                          _("Unable to acquire lock on '%s'"),
                                          res->path);
                 }
-                goto error;
+                return NULL;
             }
 
             /* Now make sure the pidfile we locked is the same
@@ -195,14 +196,14 @@ virLockSpaceResourceNew(virLockSpacePtr lockspace,
             virReportSystemError(errno,
                                  _("Unable to open resource %s"),
                                  res->path);
-            goto error;
+            return NULL;
         }
 
         if (virSetCloseExec(res->fd) < 0) {
             virReportSystemError(errno,
                                  _("Failed to set close-on-exec flag '%s'"),
                                  res->path);
-            goto error;
+            return NULL;
         }
 
         if (virFileLock(res->fd, shared, 0, 1, false) < 0) {
@@ -215,21 +216,19 @@ virLockSpaceResourceNew(virLockSpacePtr lockspace,
                                      _("Unable to acquire lock on '%s'"),
                                      res->path);
             }
-            goto error;
+            return NULL;
         }
     }
     res->lockHeld = true;
 
     if (VIR_EXPAND_N(res->owners, res->nOwners, 1) < 0)
-        goto error;
+        return NULL;
 
     res->owners[res->nOwners-1] = owner;
 
-    return res;
+    VIR_STEAL_PTR(tmpRes, res);
 
- error:
-    virLockSpaceResourceFree(res);
-    return NULL;
+    return tmpRes;
 }
 
 
@@ -242,7 +241,8 @@ static void virLockSpaceResourceDataFree(void *opaque, const void *name ATTRIBUT
 
 virLockSpacePtr virLockSpaceNew(const char *directory)
 {
-    virLockSpacePtr lockspace;
+    virLockSpacePtr tmpLockspace;
+    VIR_AUTOPTR(virLockSpace) lockspace = NULL;
 
     VIR_DEBUG("directory=%s", NULLSTR(directory));
 
@@ -252,49 +252,47 @@ virLockSpacePtr virLockSpaceNew(const char *directory)
     if (virMutexInit(&lockspace->lock) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("Unable to initialize lockspace mutex"));
-        VIR_FREE(lockspace);
         return NULL;
     }
 
     if (VIR_STRDUP(lockspace->dir, directory) < 0)
-        goto error;
+        return NULL;
 
     if (!(lockspace->resources = virHashCreate(VIR_LOCKSPACE_TABLE_SIZE,
                                                virLockSpaceResourceDataFree)))
-        goto error;
+        return NULL;
 
     if (directory) {
         if (virFileExists(directory)) {
             if (!virFileIsDir(directory)) {
                 virReportError(VIR_ERR_INTERNAL_ERROR,
                                _("Lockspace location %s exists, but is not a directory"),
-                           directory);
-                goto error;
+                               directory);
+                return NULL;
             }
         } else {
             if (virFileMakePathWithMode(directory, 0700) < 0) {
                 virReportSystemError(errno,
                                      _("Unable to create lockspace %s"),
                                      directory);
-                goto error;
+                return NULL;
             }
         }
     }
 
-    return lockspace;
+    VIR_STEAL_PTR(tmpLockspace, lockspace);
 
- error:
-    virLockSpaceFree(lockspace);
-    return NULL;
+    return tmpLockspace;
 }
 
 
 
 virLockSpacePtr virLockSpaceNewPostExecRestart(virJSONValuePtr object)
 {
-    virLockSpacePtr lockspace;
+    virLockSpacePtr tmpLockspace;
     virJSONValuePtr resources;
     size_t i;
+    VIR_AUTOPTR(virLockSpace) lockspace = NULL;
 
     VIR_DEBUG("object=%p", object);
 
@@ -304,110 +302,99 @@ virLockSpacePtr virLockSpaceNewPostExecRestart(virJSONValuePtr object)
     if (virMutexInit(&lockspace->lock) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("Unable to initialize lockspace mutex"));
-        VIR_FREE(lockspace);
         return NULL;
     }
 
     if (!(lockspace->resources = virHashCreate(VIR_LOCKSPACE_TABLE_SIZE,
                                                virLockSpaceResourceDataFree)))
-        goto error;
+        return NULL;
 
     if (virJSONValueObjectHasKey(object, "directory")) {
         const char *dir = virJSONValueObjectGetString(object, "directory");
         if (VIR_STRDUP(lockspace->dir, dir) < 0)
-            goto error;
+            return NULL;
     }
 
     if (!(resources = virJSONValueObjectGet(object, "resources"))) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("Missing resources value in JSON document"));
-        goto error;
+        return NULL;
     }
 
     if (!virJSONValueIsArray(resources)) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("Malformed resources array"));
-        goto error;
+        return NULL;
     }
 
     for (i = 0; i < virJSONValueArraySize(resources); i++) {
         virJSONValuePtr child = virJSONValueArrayGet(resources, i);
-        virLockSpaceResourcePtr res;
         const char *tmp;
         virJSONValuePtr owners;
         size_t j;
         size_t m;
+        virLockSpaceResourcePtr tmpRes ATTRIBUTE_UNUSED;
+        VIR_AUTOPTR(virLockSpaceResource) res = NULL;
 
         if (VIR_ALLOC(res) < 0)
-            goto error;
+            return NULL;
+
         res->fd = -1;
 
         if (!(tmp = virJSONValueObjectGetString(child, "name"))) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Missing resource name in JSON document"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
-        if (VIR_STRDUP(res->name, tmp) < 0) {
-            virLockSpaceResourceFree(res);
-            goto error;
-        }
+        if (VIR_STRDUP(res->name, tmp) < 0)
+            return NULL;
 
         if (!(tmp = virJSONValueObjectGetString(child, "path"))) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Missing resource path in JSON document"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
-        if (VIR_STRDUP(res->path, tmp) < 0) {
-            virLockSpaceResourceFree(res);
-            goto error;
-        }
+        if (VIR_STRDUP(res->path, tmp) < 0)
+            return NULL;
+
         if (virJSONValueObjectGetNumberInt(child, "fd", &res->fd) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Missing resource fd in JSON document"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
         if (virSetInherit(res->fd, false) < 0) {
             virReportSystemError(errno, "%s",
                                  _("Cannot enable close-on-exec flag"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
         if (virJSONValueObjectGetBoolean(child, "lockHeld", &res->lockHeld) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Missing resource lockHeld in JSON document"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
 
         if (virJSONValueObjectGetNumberUint(child, "flags", &res->flags) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Missing resource flags in JSON document"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
 
         if (!(owners = virJSONValueObjectGet(child, "owners"))) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Missing resource owners in JSON document"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
 
         if (!virJSONValueIsArray(owners)) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Malformed owners array"));
-            virLockSpaceResourceFree(res);
-            goto error;
+            return NULL;
         }
 
         m = virJSONValueArraySize(owners);
-        if (VIR_ALLOC_N(res->owners, res->nOwners) < 0) {
-            virLockSpaceResourceFree(res);
-            goto error;
-        }
+        if (VIR_ALLOC_N(res->owners, res->nOwners) < 0)
+            return NULL;
+
         res->nOwners = m;
 
         for (j = 0; j < res->nOwners; j++) {
@@ -417,32 +404,31 @@ virLockSpacePtr virLockSpaceNewPostExecRestart(virJSONValuePtr object)
             if (virJSONValueGetNumberUlong(ownerval, &owner) < 0) {
                 virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                                _("Malformed owner value in JSON document"));
-                virLockSpaceResourceFree(res);
-                goto error;
+                return NULL;
             }
 
             res->owners[j] = (pid_t)owner;
         }
 
-        if (virHashAddEntry(lockspace->resources, res->name, res) < 0) {
-            virLockSpaceResourceFree(res);
-            goto error;
-        }
+        if (virHashAddEntry(lockspace->resources, res->name, res) < 0)
+            return NULL;
+
+        VIR_STEAL_PTR(tmpRes, res);
     }
 
-    return lockspace;
+    VIR_STEAL_PTR(tmpLockspace, lockspace);
 
- error:
-    virLockSpaceFree(lockspace);
-    return NULL;
+    return tmpLockspace;
 }
 
 
 virJSONValuePtr virLockSpacePreExecRestart(virLockSpacePtr lockspace)
 {
-    virJSONValuePtr object = virJSONValueNewObject();
+    virJSONValuePtr tmpObject;
     virJSONValuePtr resources;
-    virHashKeyValuePairPtr pairs = NULL, tmp;
+    virHashKeyValuePairPtr tmpPairs;
+    VIR_AUTOPTR(virHashKeyValuePair) pairs = NULL;
+    VIR_AUTOPTR(virJSONValue) object = virJSONValueNewObject();
 
     if (!object)
         return NULL;
@@ -461,9 +447,9 @@ virJSONValuePtr virLockSpacePreExecRestart(virLockSpacePtr lockspace)
         goto error;
     }
 
-    tmp = pairs = virHashGetItems(lockspace->resources, NULL);
-    while (tmp && tmp->value) {
-        virLockSpaceResourcePtr res = (virLockSpaceResourcePtr)tmp->value;
+    tmpPairs = pairs = virHashGetItems(lockspace->resources, NULL);
+    while (tmpPairs && tmpPairs->value) {
+        virLockSpaceResourcePtr res = (virLockSpaceResourcePtr)tmpPairs->value;
         virJSONValuePtr child = virJSONValueNewObject();
         virJSONValuePtr owners = NULL;
         size_t i;
@@ -498,26 +484,26 @@ virJSONValuePtr virLockSpacePreExecRestart(virLockSpacePtr lockspace)
         }
 
         for (i = 0; i < res->nOwners; i++) {
-            virJSONValuePtr owner = virJSONValueNewNumberUlong(res->owners[i]);
+            VIR_AUTOPTR(virJSONValue) owner = virJSONValueNewNumberUlong(res->owners[i]);
             if (!owner)
                 goto error;
 
-            if (virJSONValueArrayAppend(owners, owner) < 0) {
-                virJSONValueFree(owner);
+            if (virJSONValueArrayAppend(owners, owner) < 0)
                 goto error;
-            }
+
+            owner = NULL;
         }
 
-        tmp++;
+        tmpPairs++;
     }
-    VIR_FREE(pairs);
 
     virMutexUnlock(&lockspace->lock);
-    return object;
+
+    VIR_STEAL_PTR(tmpObject, object);
+
+    return tmpObject;
 
  error:
-    VIR_FREE(pairs);
-    virJSONValueFree(object);
     virMutexUnlock(&lockspace->lock);
     return NULL;
 }
