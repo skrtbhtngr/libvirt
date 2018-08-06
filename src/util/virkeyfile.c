@@ -272,19 +272,18 @@ static void virKeyFileEntryFree(void *payload, const void *name ATTRIBUTE_UNUSED
 virKeyFilePtr virKeyFileNew(void)
 {
     virKeyFilePtr conf;
+    VIR_AUTOPTR(virKeyFile) tmpConf = NULL;
 
-    if (VIR_ALLOC(conf) < 0)
-        goto error;
+    if (VIR_ALLOC(tmpConf) < 0)
+        return NULL;
 
-    if (!(conf->groups = virHashCreate(10,
+    if (!(tmpConf->groups = virHashCreate(10,
                                        virKeyFileEntryFree)))
-        goto error;
+        return NULL;
+
+    VIR_STEAL_PTR(conf, tmpConf);
 
     return conf;
-
- error:
-    virKeyFileFree(conf);
-    return NULL;
 }
 
 
