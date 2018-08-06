@@ -101,8 +101,9 @@ static virRotatingFileWriterEntryPtr
 virRotatingFileWriterEntryNew(const char *path,
                               mode_t mode)
 {
-    virRotatingFileWriterEntryPtr entry;
+    virRotatingFileWriterEntryPtr tmp;
     struct stat sb;
+    VIR_AUTOPTR(virRotatingFileWriterEntry) entry = NULL;
 
     VIR_DEBUG("Opening %s mode=0%02o", path, mode);
 
@@ -112,7 +113,7 @@ virRotatingFileWriterEntryNew(const char *path,
     if ((entry->fd = open(path, O_CREAT|O_APPEND|O_WRONLY|O_CLOEXEC, mode)) < 0) {
         virReportSystemError(errno,
                              _("Unable to open file: %s"), path);
-        goto error;
+        return NULL;
     }
 
     entry->pos = lseek(entry->fd, 0, SEEK_END);
@@ -120,32 +121,30 @@ virRotatingFileWriterEntryNew(const char *path,
         virReportSystemError(errno,
                              _("Unable to determine current file offset: %s"),
                              path);
-        goto error;
+        return NULL;
     }
 
     if (fstat(entry->fd, &sb) < 0) {
         virReportSystemError(errno,
                              _("Unable to determine current file inode: %s"),
                              path);
-        goto error;
+        return NULL;
     }
 
     entry->len = sb.st_size;
     entry->inode = sb.st_ino;
 
-    return entry;
-
- error:
-    virRotatingFileWriterEntryFree(entry);
-    return NULL;
+    VIR_STEAL_PTR(tmp, entry);
+    return tmp;
 }
 
 
 static virRotatingFileReaderEntryPtr
 virRotatingFileReaderEntryNew(const char *path)
 {
-    virRotatingFileReaderEntryPtr entry;
+    virRotatingFileReaderEntryPtr tmp ATTRIBUTE_UNUSED;
     struct stat sb;
+    VIR_AUTOPTR(virRotatingFileReaderEntry) entry = NULL;
 
     VIR_DEBUG("Opening %s", path);
 
@@ -156,7 +155,7 @@ virRotatingFileReaderEntryNew(const char *path)
         if (errno != ENOENT) {
             virReportSystemError(errno,
                                  _("Unable to open file: %s"), path);
-            goto error;
+            return NULL;
         }
     }
 
@@ -165,20 +164,17 @@ virRotatingFileReaderEntryNew(const char *path)
             virReportSystemError(errno,
                                  _("Unable to determine current file inode: %s"),
                                  path);
-            goto error;
+            return NULL;
         }
 
         entry->inode = sb.st_ino;
     }
 
     if (VIR_STRDUP(entry->path, path) < 0)
-        goto error;
+        return NULL;
 
-    return entry;
-
- error:
-    virRotatingFileReaderEntryFree(entry);
-    return NULL;
+    VIR_STEAL_PTR(tmp, entry);
+    return tmp;
 }
 
 
@@ -238,19 +234,20 @@ virRotatingFileWriterNew(const char *path,
                          bool trunc,
                          mode_t mode)
 {
-    virRotatingFileWriterPtr file;
+    virRotatingFileWriterPtr tmp;
+    VIR_AUTOPTR(virRotatingFileWriter) file = NULL;
 
     if (VIR_ALLOC(file) < 0)
-        goto error;
+        return NULL;
 
     if (VIR_STRDUP(file->basepath, path) < 0)
-        goto error;
+        return NULL;
 
     if (maxbackup > VIR_MAX_MAX_BACKUP) {
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                        _("Max backup %zu must be less than or equal to %d"),
                        maxbackup, VIR_MAX_MAX_BACKUP);
-        goto error;
+        return NULL;
     }
 
     file->mode = mode;
@@ -259,17 +256,14 @@ virRotatingFileWriterNew(const char *path,
 
     if (trunc &&
         virRotatingFileWriterDelete(file) < 0)
-        goto error;
+        return NULL;
 
     if (!(file->entry = virRotatingFileWriterEntryNew(file->basepath,
                                                       mode)))
-        goto error;
+        return NULL;
 
-    return file;
-
- error:
-    virRotatingFileWriterFree(file);
-    return NULL;
+    VIR_STEAL_PTR(tmp, file);
+    return tmp;
 }
 
 
@@ -288,42 +282,40 @@ virRotatingFileReaderPtr
 virRotatingFileReaderNew(const char *path,
                          size_t maxbackup)
 {
-    virRotatingFileReaderPtr file;
+    virRotatingFileReaderPtr tmp ATTRIBUTE_UNUSED;
     size_t i;
+    VIR_AUTOPTR(virRotatingFileReader) file = NULL;
 
     if (VIR_ALLOC(file) < 0)
-        goto error;
+        return NULL;
 
     if (maxbackup > VIR_MAX_MAX_BACKUP) {
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                        _("Max backup %zu must be less than or equal to %d"),
                        maxbackup, VIR_MAX_MAX_BACKUP);
-        goto error;
+        return NULL;
     }
 
     file->nentries = maxbackup + 1;
     if (VIR_ALLOC_N(file->entries, file->nentries) < 0)
-        goto error;
+        return NULL;
 
     if (!(file->entries[file->nentries - 1] = virRotatingFileReaderEntryNew(path)))
-        goto error;
+        return NULL;
 
     for (i = 0; i < maxbackup; i++) {
         VIR_AUTOFREE(char *) tmppath = NULL;
 
         if (virAsprintf(&tmppath, "%s.%zu", path, i) < 0)
-            goto error;
+            return NULL;
 
         file->entries[file->nentries - (i + 2)] = virRotatingFileReaderEntryNew(tmppath);
         if (!file->entries[file->nentries - (i + 2)])
-            goto error;
+            return NULL;
     }
 
-    return file;
-
- error:
-    virRotatingFileReaderFree(file);
-    return NULL;
+    VIR_STEAL_PTR(tmp, file);
+    return tmp;
 }
 
 
