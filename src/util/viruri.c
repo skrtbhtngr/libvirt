@@ -141,7 +141,8 @@ virURIPtr
 virURIParse(const char *uri)
 {
     xmlURIPtr xmluri;
-    virURIPtr ret = NULL;
+    virURIPtr tmp = NULL;
+    VIR_AUTOPTR(virURI) ret = NULL;
 
     xmluri = xmlParseURI(uri);
 
@@ -184,11 +185,11 @@ virURIParse(const char *uri)
 
     xmlFreeURI(xmluri);
 
-    return ret;
+    VIR_STEAL_PTR(tmp, ret);
+    return tmp;
 
  error:
     xmlFreeURI(xmluri);
-    virURIFree(ret);
     return NULL;
 }
 
@@ -359,8 +360,7 @@ virURIFindAliasMatch(char *const*aliases, const char *alias,
 int
 virURIResolveAlias(virConfPtr conf, const char *alias, char **uri)
 {
-    int ret = -1;
-    char **aliases = NULL;
+    VIR_AUTOPTR(virString) aliases = NULL;
 
     *uri = NULL;
 
@@ -368,11 +368,8 @@ virURIResolveAlias(virConfPtr conf, const char *alias, char **uri)
         return -1;
 
     if (aliases && *aliases) {
-        ret = virURIFindAliasMatch(aliases, alias, uri);
-        virStringListFree(aliases);
+        return virURIFindAliasMatch(aliases, alias, uri);
     } else {
-        ret = 0;
+        return 0;
     }
-
-    return ret;
 }
