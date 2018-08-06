@@ -141,8 +141,9 @@ static dnsmasqAddnHostsfile *
 addnhostsNew(const char *name,
              const char *config_dir)
 {
-    dnsmasqAddnHostsfile *addnhostsfile;
     virBuffer buf = VIR_BUFFER_INITIALIZER;
+    dnsmasqAddnHostsfile *tmpFile ATTRIBUTE_UNUSED = NULL;
+    VIR_AUTOPTR(dnsmasqAddnHostsfile) addnhostsfile = NULL;
 
     if (VIR_ALLOC(addnhostsfile) < 0)
         return NULL;
@@ -160,12 +161,14 @@ addnhostsNew(const char *name,
     if (!(addnhostsfile->path = virBufferContentAndReset(&buf)))
         goto error;
 
-    return addnhostsfile;
+    VIR_STEAL_PTR(tmpFile, addnhostsfile);
+
+    return tmpFile;
 
  error:
     virBufferFreeAndReset(&buf);
-    addnhostsFree(addnhostsfile);
     return NULL;
+
 }
 
 static int
@@ -341,8 +344,9 @@ static dnsmasqHostsfile *
 hostsfileNew(const char *name,
              const char *config_dir)
 {
-    dnsmasqHostsfile *hostsfile;
     virBuffer buf = VIR_BUFFER_INITIALIZER;
+    dnsmasqHostsfile *tmpFile ATTRIBUTE_UNUSED = NULL;
+    VIR_AUTOPTR(dnsmasqHostsfile) hostsfile = NULL;
 
     if (VIR_ALLOC(hostsfile) < 0)
         return NULL;
@@ -359,11 +363,13 @@ hostsfileNew(const char *name,
 
     if (!(hostsfile->path = virBufferContentAndReset(&buf)))
         goto error;
-    return hostsfile;
+
+    VIR_STEAL_PTR(tmpFile, hostsfile);
+
+    return tmpFile;
 
  error:
     virBufferFreeAndReset(&buf);
-    hostsfileFree(hostsfile);
     return NULL;
 }
 
@@ -438,24 +444,23 @@ dnsmasqContext *
 dnsmasqContextNew(const char *network_name,
                   const char *config_dir)
 {
-    dnsmasqContext *ctx;
+    dnsmasqContext *tmpCtx = NULL;
+    VIR_AUTOPTR(dnsmasqContext) ctx = NULL;
 
     if (VIR_ALLOC(ctx) < 0)
         return NULL;
 
     if (VIR_STRDUP(ctx->config_dir, config_dir) < 0)
-        goto error;
+        return NULL;
 
     if (!(ctx->hostsfile = hostsfileNew(network_name, config_dir)))
-        goto error;
+        return NULL;
     if (!(ctx->addnhostsfile = addnhostsNew(network_name, config_dir)))
-        goto error;
+        return NULL;
 
-    return ctx;
+    VIR_STEAL_PTR(tmpCtx, ctx);
 
- error:
-    dnsmasqContextFree(ctx);
-    return NULL;
+    return tmpCtx;
 }
 
 /**
@@ -690,9 +695,8 @@ dnsmasqCapsSetFromFile(dnsmasqCapsPtr caps, const char *path)
 static int
 dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
 {
-    int ret = -1;
     struct stat sb;
-    virCommandPtr cmd = NULL;
+    VIR_AUTOPTR(virCommand) cmd = NULL;
     VIR_AUTOFREE(char *) help = NULL;
     VIR_AUTOFREE(char *) version = NULL;
     VIR_AUTOFREE(char *) complete = NULL;
@@ -716,7 +720,7 @@ dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
     if (!virFileIsExecutable(caps->binaryPath)) {
         virReportSystemError(errno, _("dnsmasq binary %s is not executable"),
                              caps->binaryPath);
-        goto cleanup;
+        return -1;
     }
 
     cmd = virCommandNewArgList(caps->binaryPath, "--version", NULL);
@@ -726,7 +730,7 @@ dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
     if (virCommandRun(cmd, NULL) < 0) {
         virReportSystemError(errno, _("failed to run '%s --version': %s"),
                              caps->binaryPath, version);
-        goto cleanup;
+        return -1;
     }
     virCommandFree(cmd);
 
@@ -737,17 +741,13 @@ dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
     if (virCommandRun(cmd, NULL) < 0) {
         virReportSystemError(errno, _("failed to run '%s --help': %s"),
                              caps->binaryPath, help);
-        goto cleanup;
+        return -1;
     }
 
     if (virAsprintf(&complete, "%s\n%s", version, help) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = dnsmasqCapsSetFromBuffer(caps, complete);
-
- cleanup:
-    virCommandFree(cmd);
-    return ret;
+    return dnsmasqCapsSetFromBuffer(caps, complete);
 }
 
 static dnsmasqCapsPtr
