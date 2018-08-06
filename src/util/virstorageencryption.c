@@ -115,31 +115,29 @@ virStorageEncryptionInfoDefCopy(const virStorageEncryptionInfoDef *src,
 virStorageEncryptionPtr
 virStorageEncryptionCopy(const virStorageEncryption *src)
 {
-    virStorageEncryptionPtr ret;
     size_t i;
+    virStorageEncryptionPtr tmp ATTRIBUTE_UNUSED;
+    VIR_AUTOPTR(virStorageEncryption) ret = NULL;
 
     if (VIR_ALLOC(ret) < 0)
         return NULL;
 
     if (VIR_ALLOC_N(ret->secrets, src->nsecrets) < 0)
-        goto error;
+        return NULL;
 
     ret->nsecrets = src->nsecrets;
     ret->format = src->format;
 
     for (i = 0; i < src->nsecrets; i++) {
         if (!(ret->secrets[i] = virStorageEncryptionSecretCopy(src->secrets[i])))
-            goto error;
+            return NULL;
     }
 
     if (virStorageEncryptionInfoDefCopy(&src->encinfo, &ret->encinfo) < 0)
-        goto error;
+        return NULL;
 
-    return ret;
-
- error:
-    virStorageEncryptionFree(ret);
-    return NULL;
+    VIR_STEAL_PTR(tmp, ret);
+    return tmp;
 }
 
 static virStorageEncryptionSecretPtr
@@ -147,7 +145,8 @@ virStorageEncryptionSecretParse(xmlXPathContextPtr ctxt,
                                 xmlNodePtr node)
 {
     xmlNodePtr old_node;
-    virStorageEncryptionSecretPtr ret;
+    virStorageEncryptionSecretPtr tmp;
+    VIR_AUTOPTR(virStorageEncryptionSecret) ret = NULL;
     VIR_AUTOFREE(char *) type_str = NULL;
 
     if (VIR_ALLOC(ret) < 0)
@@ -159,26 +158,24 @@ virStorageEncryptionSecretParse(xmlXPathContextPtr ctxt,
     if (!(type_str = virXPathString("string(./@type)", ctxt))) {
         virReportError(VIR_ERR_XML_ERROR, "%s",
                        _("unknown volume encryption secret type"));
-        goto cleanup;
+        ctxt->node = old_node;
+        return NULL;
     }
+
+    ctxt->node = old_node;
 
     if ((ret->type = virStorageEncryptionSecretTypeFromString(type_str)) < 0) {
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                        _("unknown volume encryption secret type %s"),
                        type_str);
-        goto cleanup;
+        return NULL;
     }
 
     if (virSecretLookupParseSecret(node, &ret->seclookupdef) < 0)
-        goto cleanup;
+        return NULL;
 
-    ctxt->node = old_node;
-    return ret;
-
- cleanup:
-    virStorageEncryptionSecretFree(ret);
-    ctxt->node = old_node;
-    return NULL;
+    VIR_STEAL_PTR(tmp, ret);
+    return tmp;
 }
 
 
@@ -236,10 +233,10 @@ virStorageEncryptionParseNode(xmlNodePtr node,
                               xmlXPathContextPtr ctxt)
 {
     xmlNodePtr saveNode = ctxt->node;
-    virStorageEncryptionPtr encdef = NULL;
     virStorageEncryptionPtr ret = NULL;
     int n;
     size_t i;
+    VIR_AUTOPTR(virStorageEncryption) encdef = NULL;
     VIR_AUTOFREE(xmlNodePtr *) nodes = NULL;
     VIR_AUTOFREE(char *) format_str = NULL;
 
@@ -301,7 +298,6 @@ virStorageEncryptionParseNode(xmlNodePtr node,
     VIR_STEAL_PTR(ret, encdef);
 
  cleanup:
-    virStorageEncryptionFree(encdef);
     ctxt->node = saveNode;
 
     return ret;
