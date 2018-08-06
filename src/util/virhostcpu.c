@@ -306,8 +306,6 @@ virHostCPUParseNode(const char *node,
     int processors = 0;
     DIR *cpudir = NULL;
     struct dirent *cpudirent = NULL;
-    virBitmapPtr node_cpus_map = NULL;
-    virBitmapPtr sockets_map = NULL;
     int npresent_cpus = virBitmapSize(present_cpus_map);
     unsigned int sock_max = 0;
     unsigned int sock;
@@ -316,6 +314,8 @@ virHostCPUParseNode(const char *node,
     int siblings;
     unsigned int cpu;
     int direrr;
+    VIR_AUTOPTR(virBitmap) sockets_map = NULL;
+    VIR_AUTOPTR(virBitmap) node_cpus_map = NULL;
     VIR_AUTOFREE(virBitmapPtr *) cores_maps = NULL;
 
     *threads = 0;
@@ -459,8 +459,6 @@ virHostCPUParseNode(const char *node,
     if (cores_maps)
         for (i = 0; i < sock_max; i++)
             virBitmapFree(cores_maps[i]);
-    virBitmapFree(sockets_map);
-    virBitmapFree(node_cpus_map);
 
     return ret;
 }
@@ -472,31 +470,25 @@ virHostCPUParseNode(const char *node,
 static bool
 virHostCPUHasValidSubcoreConfiguration(int threads_per_subcore)
 {
-    virBitmapPtr online_cpus = NULL;
     int cpu = -1;
-    bool ret = false;
+    VIR_AUTOPTR(virBitmap) online_cpus = NULL;
 
     /* No point in checking if subcores are not in use */
     if (threads_per_subcore <= 0)
-        goto cleanup;
+        return false;
 
     if (!(online_cpus = virHostCPUGetOnlineBitmap()))
-        goto cleanup;
+        return false;
 
     while ((cpu = virBitmapNextSetBit(online_cpus, cpu)) >= 0) {
 
         /* A single online secondary thread is enough to
          * make the configuration invalid */
         if (cpu % threads_per_subcore != 0)
-            goto cleanup;
+            return false;
     }
 
-    ret = true;
-
- cleanup:
-    virBitmapFree(online_cpus);
-
-    return ret;
+    return true;
 }
 
 
@@ -620,8 +612,6 @@ virHostCPUGetInfoPopulateLinux(FILE *cpuinfo,
                                unsigned int *cores,
                                unsigned int *threads)
 {
-    virBitmapPtr present_cpus_map = NULL;
-    virBitmapPtr online_cpus_map = NULL;
     DIR *nodedir = NULL;
     struct dirent *nodedirent = NULL;
     int nodecpus, nodecores, nodesockets, nodethreads, offline = 0;
@@ -629,6 +619,8 @@ virHostCPUGetInfoPopulateLinux(FILE *cpuinfo,
     unsigned int node;
     int ret = -1;
     int direrr;
+    VIR_AUTOPTR(virBitmap) present_cpus_map = NULL;
+    VIR_AUTOPTR(virBitmap) online_cpus_map = NULL;
     VIR_AUTOFREE(char *) sysfs_nodedir = NULL;
     VIR_AUTOFREE(char *) sysfs_cpudir = NULL;
 
@@ -787,8 +779,6 @@ virHostCPUGetInfoPopulateLinux(FILE *cpuinfo,
 
  cleanup:
     VIR_DIR_CLOSE(nodedir);
-    virBitmapFree(present_cpus_map);
-    virBitmapFree(online_cpus_map);
     return ret;
 }
 
@@ -1098,9 +1088,9 @@ virHostCPUGetMap(unsigned char **cpumap,
                  unsigned int *online,
                  unsigned int flags)
 {
-    virBitmapPtr cpus = NULL;
     int ret = -1;
     int dummy;
+    VIR_AUTOPTR(virBitmap) cpus = NULL;
 
     virCheckFlags(0, -1);
 
@@ -1120,7 +1110,6 @@ virHostCPUGetMap(unsigned char **cpumap,
  cleanup:
     if (ret < 0 && cpumap)
         VIR_FREE(*cpumap);
-    virBitmapFree(cpus);
     return ret;
 }
 
