@@ -329,7 +329,6 @@ virResctrlGetInfo(virResctrlInfoPtr resctrl)
 {
     DIR *dirp = NULL;
     char *endptr = NULL;
-    char *tmp_str = NULL;
     int ret = -1;
     int rv = -1;
     int type = 0;
@@ -338,6 +337,7 @@ virResctrlGetInfo(virResctrlInfoPtr resctrl)
     virBitmapPtr tmp_map = NULL;
     virResctrlInfoPerLevelPtr i_level = NULL;
     virResctrlInfoPerTypePtr i_type = NULL;
+    VIR_AUTOFREE(char *) tmp_str = NULL;
 
     rv = virDirOpenIfExists(&dirp, SYSFS_RESCTRL_PATH "/info");
     if (rv <= 0) {
@@ -398,7 +398,6 @@ virResctrlGetInfo(virResctrlInfoPtr resctrl)
         virStringTrimOptionalNewline(tmp_str);
 
         tmp_map = virBitmapNewString(tmp_str);
-        VIR_FREE(tmp_str);
         if (!tmp_map) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("Cannot parse cbm_mask from resctrl cache info"));
@@ -869,7 +868,7 @@ virResctrlAllocFormat(virResctrlAllocPtr alloc)
 
             for (cache = 0; cache < a_type->nmasks; cache++) {
                 virBitmapPtr mask = a_type->masks[cache];
-                char *mask_str = NULL;
+                VIR_AUTOFREE(char *) mask_str = NULL;
 
                 if (!mask)
                     continue;
@@ -881,7 +880,6 @@ virResctrlAllocFormat(virResctrlAllocPtr alloc)
                 }
 
                 virBufferAsprintf(&buf, "%u=%s;", cache, mask_str);
-                VIR_FREE(mask_str);
             }
 
             virBufferTrim(&buf, ";", 1);
@@ -1032,11 +1030,11 @@ virResctrlAllocGetGroup(virResctrlInfoPtr resctrl,
                         const char *groupname,
                         virResctrlAllocPtr *alloc)
 {
-    char *schemata = NULL;
-    int rv = virFileReadValueString(&schemata,
-                                     SYSFS_RESCTRL_PATH
-                                     "/%s/schemata",
-                                     groupname);
+    int rv;
+    VIR_AUTOFREE(char *) schemata = NULL;
+
+    rv = virFileReadValueString(&schemata, SYSFS_RESCTRL_PATH
+                                "/%s/schemata", groupname);
 
     *alloc = NULL;
 
@@ -1050,11 +1048,9 @@ virResctrlAllocGetGroup(virResctrlInfoPtr resctrl,
     if (virResctrlAllocParse(resctrl, *alloc, schemata) < 0)
         goto error;
 
-    VIR_FREE(schemata);
     return 0;
 
  error:
-    VIR_FREE(schemata);
     virObjectUnref(*alloc);
     *alloc = NULL;
     return -1;
@@ -1505,10 +1501,10 @@ virResctrlAllocCreate(virResctrlInfoPtr resctrl,
                       virResctrlAllocPtr alloc,
                       const char *machinename)
 {
-    char *schemata_path = NULL;
-    char *alloc_str = NULL;
     int ret = -1;
     int lockfd = -1;
+    VIR_AUTOFREE(char *) schemata_path = NULL;
+    VIR_AUTOFREE(char *) alloc_str = NULL;
 
     if (!alloc)
         return 0;
@@ -1562,8 +1558,6 @@ virResctrlAllocCreate(virResctrlInfoPtr resctrl,
     ret = 0;
  cleanup:
     virResctrlUnlock(lockfd);
-    VIR_FREE(alloc_str);
-    VIR_FREE(schemata_path);
     return ret;
 }
 
@@ -1572,9 +1566,8 @@ int
 virResctrlAllocAddPID(virResctrlAllocPtr alloc,
                       pid_t pid)
 {
-    char *tasks = NULL;
-    char *pidstr = NULL;
-    int ret = 0;
+    VIR_AUTOFREE(char *) tasks = NULL;
+    VIR_AUTOFREE(char *) pidstr = NULL;
 
     if (!alloc->path) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
@@ -1586,20 +1579,16 @@ virResctrlAllocAddPID(virResctrlAllocPtr alloc,
         return -1;
 
     if (virAsprintf(&pidstr, "%lld", (long long int) pid) < 0)
-        goto cleanup;
+        return 0;
 
     if (virFileWriteStr(tasks, pidstr, 0) < 0) {
         virReportSystemError(errno,
                              _("Cannot write pid in tasks file '%s'"),
                              tasks);
-        goto cleanup;
+        return 0;
     }
 
-    ret = 0;
- cleanup:
-    VIR_FREE(tasks);
-    VIR_FREE(pidstr);
-    return ret;
+    return 0;
 }
 
 
