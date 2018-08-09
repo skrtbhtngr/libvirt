@@ -26,7 +26,6 @@
 #include <unistd.h>
 
 #include "virrotatingfile.h"
-#include "viralloc.h"
 #include "virerror.h"
 #include "virstring.h"
 #include "virfile.h"
@@ -83,6 +82,7 @@ virRotatingFileWriterEntryFree(virRotatingFileWriterEntryPtr entry)
     VIR_FREE(entry);
 }
 
+VIR_DEFINE_AUTOPTR_FUNC(virRotatingFileWriterEntry, virRotatingFileWriterEntryFree)
 
 static void
 virRotatingFileReaderEntryFree(virRotatingFileReaderEntryPtr entry)
@@ -95,6 +95,7 @@ virRotatingFileReaderEntryFree(virRotatingFileReaderEntryPtr entry)
     VIR_FREE(entry);
 }
 
+VIR_DEFINE_AUTOPTR_FUNC(virRotatingFileReaderEntry, virRotatingFileReaderEntryFree)
 
 static virRotatingFileWriterEntryPtr
 virRotatingFileWriterEntryNew(const char *path,
