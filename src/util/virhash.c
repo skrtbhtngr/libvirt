@@ -792,3 +792,9 @@ bool virHashEqual(const virHashTable *table1,
 
     return data.equal;
 }
+
+void
+virHashKeyValuePairFree(virHashKeyValuePairPtr pair)
+{
+    VIR_FREE(pair);
+}

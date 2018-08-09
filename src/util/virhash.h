@@ -178,6 +178,7 @@ typedef int (*virHashKeyComparator)(const virHashKeyValuePair *,
                                     const virHashKeyValuePair *);
 virHashKeyValuePairPtr virHashGetItems(virHashTablePtr table,
                                        virHashKeyComparator compar);
+void virHashKeyValuePairFree(virHashKeyValuePairPtr pair);
 
 /*
  * Compare two tables for equality: the lookup of a key's value in
