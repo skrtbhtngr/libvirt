@@ -204,5 +204,6 @@ void *virHashSearch(const virHashTable *table, virHashSearcher iter,
 void virHashValueFree(void *value, const void *name);
 
 VIR_DEFINE_AUTOPTR_FUNC(virHashTable, virHashFree)
+VIR_DEFINE_AUTOPTR_FUNC(virHashKeyValuePair, virHashKeyValuePairFree)
 
 #endif                          /* ! __VIR_HASH_H__ */
