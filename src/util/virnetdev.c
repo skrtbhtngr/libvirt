@@ -1182,27 +1182,21 @@ virNetDevIsPCIDevice(const char *devpath)
 static virPCIDevicePtr
 virNetDevGetPCIDevice(const char *devName)
 {
-    virPCIDeviceAddressPtr vfPCIAddr = NULL;
-    virPCIDevicePtr vfPCIDevice = NULL;
+    VIR_AUTOPTR(virPCIDeviceAddress) vfPCIAddr = NULL;
     VIR_AUTOFREE(char *) vfSysfsDevicePath = NULL;
 
     if (virNetDevSysfsFile(&vfSysfsDevicePath, devName, "device") < 0)
-        goto cleanup;
+        return NULL;
 
     if (!virNetDevIsPCIDevice(vfSysfsDevicePath))
-        goto cleanup;
+        return NULL;
 
     vfPCIAddr = virPCIGetDeviceAddressFromSysfsLink(vfSysfsDevicePath);
     if (!vfPCIAddr)
-        goto cleanup;
+        return NULL;
 
-    vfPCIDevice = virPCIDeviceNew(vfPCIAddr->domain, vfPCIAddr->bus,
-                                  vfPCIAddr->slot, vfPCIAddr->function);
-
- cleanup:
-    VIR_FREE(vfPCIAddr);
-
-    return vfPCIDevice;
+    return virPCIDeviceNew(vfPCIAddr->domain, vfPCIAddr->bus,
+                           vfPCIAddr->slot, vfPCIAddr->function);
 }
 
 
@@ -1601,12 +1595,12 @@ virNetDevSetVfConfig(const char *ifname, int vf,
     char macstr[VIR_MAC_STRING_BUFLEN];
     struct nlmsgerr *err;
     unsigned int recvbuflen = 0;
-    struct nl_msg *nl_msg;
     struct nlattr *vfinfolist, *vfinfo;
     struct ifinfomsg ifinfo = {
         .ifi_family = AF_UNSPEC,
         .ifi_index  = -1,
     };
+    VIR_AUTOPTR(virNlMsg) nl_msg = NULL;
     VIR_AUTOFREE(struct nlmsghdr *) resp = NULL;
 
     if (!macaddr && vlanid < 0)
@@ -1710,7 +1704,6 @@ virNetDevSetVfConfig(const char *ifname, int vf,
               macaddr ? virMacAddrFormat(macaddr, macstr) : "(unchanged)",
               vlanid, rc < 0 ? "Fail" : "Success");
 
-    nlmsg_free(nl_msg);
     return rc;
 
  malformed_resp:
@@ -1849,12 +1842,11 @@ virNetDevSaveNetConfig(const char *linkdev, int vf,
                        const char *stateDir,
                        bool saveVlan)
 {
-    int ret = -1;
     const char *pfDevName = NULL;
     virMacAddr oldMAC;
     char MACStr[VIR_MAC_STRING_BUFLEN];
     int oldVlanTag = -1;
-    virJSONValuePtr configJSON = NULL;
+    VIR_AUTOPTR(virJSONValue) configJSON = NULL;
     VIR_AUTOFREE(char *) pfDevOrig = NULL;
     VIR_AUTOFREE(char *) vfDevOrig = NULL;
     VIR_AUTOFREE(char *) filePath = NULL;
@@ -1866,7 +1858,7 @@ virNetDevSaveNetConfig(const char *linkdev, int vf,
 
         /* linkdev should get the VF's netdev name (or NULL if none) */
         if (virNetDevPFGetVF(pfDevName, vf, &vfDevOrig) < 0)
-            goto cleanup;
+            return -1;
 
         linkdev = vfDevOrig;
         saveVlan = true;
@@ -1878,12 +1870,12 @@ virNetDevSaveNetConfig(const char *linkdev, int vf,
          */
 
         if (virNetDevGetPhysicalFunction(linkdev, &pfDevOrig) < 0)
-            goto cleanup;
+            return -1;
 
         pfDevName = pfDevOrig;
 
         if (virNetDevGetVirtualFunctionIndex(pfDevName, linkdev, &vf) < 0)
-            goto cleanup;
+            return -1;
     }
 
     if (pfDevName) {
@@ -1901,7 +1893,7 @@ virNetDevSaveNetConfig(const char *linkdev, int vf,
          * explicitly enable the PF in the host system network config.
          */
         if (virNetDevGetOnline(pfDevName, &pfIsOnline) < 0)
-            goto cleanup;
+            return -1;
 
         if (!pfIsOnline) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
@@ -1910,12 +1902,12 @@ virNetDevSaveNetConfig(const char *linkdev, int vf,
                              "change host network config to put the "
                              "PF online."),
                            vf, pfDevName);
-            goto cleanup;
+            return -1;
         }
     }
 
     if (!(configJSON = virJSONValueNewObject()))
-        goto cleanup;
+        return -1;
 
     /* if there is a PF, it's now in pfDevName, and linkdev is either
      * the VF's name, or NULL (if the VF isn't bound to a net driver
@@ -1924,11 +1916,11 @@ virNetDevSaveNetConfig(const char *linkdev, int vf,
 
     if (pfDevName && saveVlan) {
         if (virAsprintf(&filePath, "%s/%s_vf%d", stateDir, pfDevName, vf) < 0)
-            goto cleanup;
+            return -1;
 
         /* get admin MAC and vlan tag */
         if (virNetDevGetVfConfig(pfDevName, vf, &oldMAC, &oldVlanTag) < 0)
-            goto cleanup;
+            return -1;
 
         if (virJSONValueObjectAppendString(configJSON,
                                            VIR_NETDEV_KEYNAME_ADMIN_MAC,
@@ -1936,39 +1928,36 @@ virNetDevSaveNetConfig(const char *linkdev, int vf,
             virJSONValueObjectAppendNumberInt(configJSON,
                                               VIR_NETDEV_KEYNAME_VLAN_TAG,
                                               oldVlanTag) < 0) {
-            goto cleanup;
+            return -1;
         }
 
     } else {
         if (virAsprintf(&filePath, "%s/%s", stateDir, linkdev) < 0)
-            goto cleanup;
+            return -1;
     }
 
     if (linkdev) {
         if (virNetDevGetMAC(linkdev, &oldMAC) < 0)
-            goto cleanup;
+            return -1;
 
         /* for interfaces with no pfDevName (i.e. not a VF, this will
          * be the only value in the file.
          */
         if (virJSONValueObjectAppendString(configJSON, VIR_NETDEV_KEYNAME_MAC,
                                            virMacAddrFormat(&oldMAC, MACStr)) < 0)
-           goto cleanup;
+            return -1;
     }
 
     if (!(fileStr = virJSONValueToString(configJSON, true)))
-        goto cleanup;
+        return -1;
 
     if (virFileWriteStr(filePath, fileStr, O_CREAT|O_TRUNC|O_WRONLY) < 0) {
         virReportSystemError(errno, _("Unable to preserve mac/vlan tag "
                                       "for device = %s, vf = %d"), linkdev, vf);
-        goto cleanup;
+        return -1;
     }
 
-    ret = 0;
- cleanup:
-    virJSONValueFree(configJSON);
-    return ret;
+    return 0;
 }
 
 
@@ -2000,12 +1989,14 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
                        virNetDevVlanPtr *vlan,
                        virMacAddrPtr *MAC)
 {
-    int ret = -1;
     const char *pfDevName = NULL;
-    virJSONValuePtr configJSON = NULL;
     const char *MACStr = NULL;
     const char *adminMACStr = NULL;
     int vlanTag = -1;
+    VIR_AUTOPTR(virMacAddr) tmpAdminMAC = NULL;
+    VIR_AUTOPTR(virNetDevVlan) tmpVlan = NULL;
+    VIR_AUTOPTR(virMacAddr) tmpMAC = NULL;
+    VIR_AUTOPTR(virJSONValue) configJSON = NULL;
     VIR_AUTOFREE(char *) pfDevOrig = NULL;
     VIR_AUTOFREE(char *) vfDevOrig = NULL;
     VIR_AUTOFREE(char *) filePath = NULL;
@@ -2021,7 +2012,7 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
 
         /* linkdev should get the VF's netdev name (or NULL if none) */
         if (virNetDevPFGetVF(pfDevName, vf, &vfDevOrig) < 0)
-            goto cleanup;
+            return -1;
 
         linkdev = vfDevOrig;
 
@@ -2032,12 +2023,12 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
          */
 
         if (virNetDevGetPhysicalFunction(linkdev, &pfDevOrig) < 0)
-            goto cleanup;
+            return -1;
 
         pfDevName = pfDevOrig;
 
         if (virNetDevGetVirtualFunctionIndex(pfDevName, linkdev, &vf) < 0)
-            goto cleanup;
+            return -1;
     }
 
     /* if there is a PF, it's now in pfDevName, and linkdev is either
@@ -2047,7 +2038,7 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
 
     if (pfDevName) {
         if (virAsprintf(&filePath, "%s/%s_vf%d", stateDir, pfDevName, vf) < 0)
-            goto cleanup;
+            return -1;
 
         if (linkdev && !virFileExists(filePath)) {
             /* the device may have been stored in a file named for the
@@ -2062,19 +2053,18 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
 
     if (!pfDevName) {
         if (virAsprintf(&filePath, "%s/%s", stateDir, linkdev) < 0)
-            goto cleanup;
+            return -1;
     }
 
     if (!virFileExists(filePath)) {
         /* having no file to read is not necessarily an error, so we
          * just return success, but with MAC, adminMAC, and vlan set to NULL
          */
-        ret = 0;
-        goto cleanup;
+        return 0;
     }
 
     if (virFileReadAll(filePath, 128, &fileStr) < 0)
-        goto cleanup;
+        return -1;
 
     if (strchr("0123456789abcdefABCDEF", fileStr[0])) {
         const char *vlanStr = NULL;
@@ -2096,7 +2086,7 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
                 virReportError(VIR_ERR_INTERNAL_ERROR,
                                _("cannot parse vlan tag '%s' from file '%s'"),
                                vlanStr, filePath);
-                goto cleanup;
+                return -1;
             }
         } else {
             /* if there is only one line, it is MAC */
@@ -2112,7 +2102,7 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
                            _("invalid json in net device saved "
                              "config file '%s': '%.60s'"),
                            filePath, fileStr);
-            goto cleanup;
+            return -1;
         }
 
         MACStr = virJSONValueObjectGetString(configJSON,
@@ -2129,57 +2119,52 @@ virNetDevReadNetConfig(const char *linkdev, int vf,
                              "has unexpected contents, missing both "
                              "'MAC' and 'adminMAC': '%.60s'"),
                            filePath, fileStr);
-            goto cleanup;
+            return -1;
         }
     }
 
     if (MACStr) {
-        if (VIR_ALLOC(*MAC) < 0)
-            goto cleanup;
+        if (VIR_ALLOC(tmpMAC) < 0)
+            return -1;
 
-        if (virMacAddrParse(MACStr, *MAC) < 0) {
+        if (virMacAddrParse(MACStr, tmpMAC) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("cannot parse MAC address '%s' from file '%s'"),
                            MACStr, filePath);
-            goto cleanup;
+            return -1;
         }
     }
 
     if (adminMACStr) {
-        if (VIR_ALLOC(*adminMAC) < 0)
-            goto cleanup;
+        if (VIR_ALLOC(tmpAdminMAC) < 0)
+            return -1;
 
-        if (virMacAddrParse(adminMACStr, *adminMAC) < 0) {
+        if (virMacAddrParse(adminMACStr, tmpAdminMAC) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("cannot parse MAC address '%s' from file '%s'"),
                            adminMACStr, filePath);
-            goto cleanup;
+            return -1;
         }
     }
 
     if (vlanTag != -1) {
         /* construct a simple virNetDevVlan object with a single tag */
-        if (VIR_ALLOC(*vlan) < 0)
-            goto cleanup;
-        if (VIR_ALLOC((*vlan)->tag) < 0)
-            goto cleanup;
-        (*vlan)->nTags = 1;
-        (*vlan)->tag[0] = vlanTag;
+        if (VIR_ALLOC(tmpVlan) < 0)
+            return -1;
+        if (VIR_ALLOC(tmpVlan->tag) < 0)
+            return -1;
+        tmpVlan->nTags = 1;
+        tmpVlan->tag[0] = vlanTag;
     }
 
     /* we won't need the file again */
     ignore_value(unlink(filePath));
 
-    ret = 0;
- cleanup:
-    if (ret < 0) {
-        VIR_FREE(*adminMAC);
-        VIR_FREE(*MAC);
-        VIR_FREE(*vlan);
-    }
+    VIR_STEAL_PTR(*adminMAC, tmpAdminMAC);
+    VIR_STEAL_PTR(*MAC, tmpMAC);
+    VIR_STEAL_PTR(*vlan, tmpVlan);
 
-    virJSONValueFree(configJSON);
-    return ret;
+    return 0;
 }
 
 
@@ -2208,11 +2193,10 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
                       const virMacAddr *MAC,
                       bool setVlan)
 {
-    int ret = -1;
     char MACStr[VIR_MAC_STRING_BUFLEN];
     const char *pfDevName = NULL;
     int vlanTag = -1;
-    virPCIDevicePtr vfPCIDevice = NULL;
+    VIR_AUTOPTR(virPCIDevice) vfPCIDevice = NULL;
     VIR_AUTOFREE(char *) pfDevOrig = NULL;
     VIR_AUTOFREE(char *) vfDevOrig = NULL;
 
@@ -2222,7 +2206,7 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
 
         /* linkdev should get the VF's netdev name (or NULL if none) */
         if (virNetDevPFGetVF(pfDevName, vf, &vfDevOrig) < 0)
-            goto cleanup;
+            return -1;
 
         linkdev = vfDevOrig;
 
@@ -2233,12 +2217,12 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
          */
 
         if (virNetDevGetPhysicalFunction(linkdev, &pfDevOrig) < 0)
-            goto cleanup;
+            return -1;
 
         pfDevName = pfDevOrig;
 
         if (virNetDevGetVirtualFunctionIndex(pfDevName, linkdev, &vf) < 0)
-            goto cleanup;
+            return -1;
     }
 
 
@@ -2250,14 +2234,14 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
             virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                            _("admin MAC can only be set for SR-IOV VFs, but "
                              "%s is not a VF"), linkdev);
-            goto cleanup;
+            return -1;
         }
 
         if (vlan) {
             virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                            _("vlan can only be set for SR-IOV VFs, but "
                              "%s is not a VF"), linkdev);
-            goto cleanup;
+            return -1;
         }
 
     } else {
@@ -2266,14 +2250,14 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
                 virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
                                _("vlan trunking is not supported "
                                  "by SR-IOV network devices"));
-                goto cleanup;
+                return -1;
             }
 
             if (!setVlan) {
                 virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                                _("vlan tag set for interface %s but "
                                  "caller requested it not be set"));
-                goto cleanup;
+                return -1;
             }
 
             vlanTag = vlan->tag[0];
@@ -2291,7 +2275,7 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
                            _("VF %d of PF '%s' is not bound to a net driver, "
                              "so its MAC address cannot be set to %s"),
                            vf, pfDevName, virMacAddrFormat(MAC, MACStr));
-            goto cleanup;
+            return -1;
         }
 
         setMACrc = virNetDevSetMACInternal(linkdev, MAC, !!pfDevOrig);
@@ -2302,7 +2286,7 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
             /* if pfDevOrig == NULL, this isn't a VF, so we've failed */
             if (!pfDevOrig ||
                 (errno != EADDRNOTAVAIL && errno != EPERM))
-                goto cleanup;
+                return -1;
 
             /* Otherwise this is a VF, and virNetDevSetMAC failed with
              * EADDRNOTAVAIL/EPERM, which could be due to the
@@ -2316,18 +2300,18 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
 
             if (virNetDevSetVfConfig(pfDevName, vf,
                                      MAC, vlanTag, &allowRetry) < 0) {
-                goto cleanup;
+                return -1;
             }
 
             /* admin MAC is set, now we need to construct a virPCIDevice
              * object so we can call virPCIDeviceRebind()
              */
             if (!(vfPCIDevice = virNetDevGetPCIDevice(linkdev)))
-                goto cleanup;
+                return -1;
 
             /* Rebind the device. This should set the proper MAC address */
             if (virPCIDeviceRebind(vfPCIDevice) < 0)
-                goto cleanup;
+                return -1;
 
             /* Wait until virNetDevGetIndex for the VF netdev returns success.
              * This indicates that the device is ready to be used. If we don't
@@ -2379,20 +2363,17 @@ virNetDevSetNetConfig(const char *linkdev, int vf,
              * with the "locally administered" bit set.
              */
             if (!allowRetry)
-                goto cleanup;
+                return -1;
 
             allowRetry = false;
             if (virNetDevSetVfConfig(pfDevName, vf,
                                      &altZeroMAC, vlanTag, &allowRetry) < 0) {
-                goto cleanup;
+                return -1;
             }
         }
     }
 
-    ret = 0;
- cleanup:
-    virPCIDeviceFree(vfPCIDevice);
-    return ret;
+    return 0;
 }
 
 
@@ -2863,30 +2844,29 @@ virNetDevRxFilterFree(virNetDevRxFilterPtr filter)
 int virNetDevGetRxFilter(const char *ifname,
                          virNetDevRxFilterPtr *filter)
 {
-    int ret = -1;
     bool receive = false;
-    virNetDevRxFilterPtr fil = virNetDevRxFilterNew();
+    VIR_AUTOPTR(virNetDevRxFilter) fil = virNetDevRxFilterNew();
 
     if (!fil)
-        goto cleanup;
+        return -1;
 
     if (virNetDevGetMAC(ifname, &fil->mac))
-        goto cleanup;
+        return -1;
 
     if (virNetDevGetMulticastTable(ifname, fil))
-        goto cleanup;
+        return -1;
 
     if (virNetDevGetPromiscuous(ifname, &fil->promiscuous))
-        goto cleanup;
+        return -1;
 
     if (virNetDevGetRcvAllMulti(ifname, &receive))
-        goto cleanup;
+        return -1;
 
     if (receive) {
         fil->multicast.mode = VIR_NETDEV_RX_FILTER_MODE_ALL;
     } else {
         if (virNetDevGetRcvMulti(ifname, &receive))
-            goto cleanup;
+            return -1;
 
         if (receive)
             fil->multicast.mode = VIR_NETDEV_RX_FILTER_MODE_NORMAL;
@@ -2894,15 +2874,9 @@ int virNetDevGetRxFilter(const char *ifname,
             fil->multicast.mode = VIR_NETDEV_RX_FILTER_MODE_NONE;
     }
 
-    ret = 0;
- cleanup:
-    if (ret < 0) {
-        virNetDevRxFilterFree(fil);
-        fil = NULL;
-    }
+    VIR_STEAL_PTR(*filter, fil);
 
-    *filter = fil;
-    return ret;
+    return 0;
 }
 
 #if defined(SIOCETHTOOL) && defined(HAVE_STRUCT_IFREQ)
@@ -3114,21 +3088,20 @@ virNetDevPutExtraHeader(struct nlmsghdr *nlh,
 static uint32_t
 virNetDevGetFamilyId(const char *family_name)
 {
-    struct nl_msg *nl_msg = NULL;
     struct genlmsghdr* gmsgh = NULL;
     struct nlattr *tb[CTRL_ATTR_MAX + 1] = {NULL, };
     unsigned int recvbuflen;
-    uint32_t family_id = 0;
+    VIR_AUTOPTR(virNlMsg) nl_msg = NULL;
     VIR_AUTOFREE(struct nlmsghdr *) resp = NULL;
 
     if (!(nl_msg = nlmsg_alloc_simple(GENL_ID_CTRL,
                                       NLM_F_REQUEST | NLM_F_ACK))) {
         virReportOOMError();
-        goto cleanup;
+        return 0;
     }
 
     if (!(gmsgh = virNetDevPutExtraHeader(nlmsg_hdr(nl_msg), sizeof(struct genlmsghdr))))
-        goto cleanup;
+        return 0;
 
     gmsgh->cmd = CTRL_CMD_GETFAMILY;
     gmsgh->version = DEVLINK_GENL_VERSION;
@@ -3136,26 +3109,22 @@ virNetDevGetFamilyId(const char *family_name)
     if (nla_put_string(nl_msg, CTRL_ATTR_FAMILY_NAME, family_name) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("allocated netlink buffer is too small"));
-        goto cleanup;
+        return 0;
     }
 
     if (virNetlinkCommand(nl_msg, &resp, &recvbuflen, 0, 0, NETLINK_GENERIC, 0) < 0)
-        goto cleanup;
+        return 0;
 
     if (nlmsg_parse(resp, sizeof(struct nlmsghdr), tb, CTRL_ATTR_MAX, NULL) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("malformed netlink response message"));
-        goto cleanup;
+        return 0;
     }
 
     if (tb[CTRL_ATTR_FAMILY_ID] == NULL)
-        goto cleanup;
+        return 0;
 
-    family_id = *(uint32_t *)RTA_DATA(tb[CTRL_ATTR_FAMILY_ID]);
-
- cleanup:
-    nlmsg_free(nl_msg);
-    return family_id;
+    return *(uint32_t *)RTA_DATA(tb[CTRL_ATTR_FAMILY_ID]);
 }
 
 
@@ -3173,43 +3142,40 @@ static int
 virNetDevSwitchdevFeature(const char *ifname,
                           virBitmapPtr *out)
 {
-    struct nl_msg *nl_msg = NULL;
     unsigned int recvbuflen;
     struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {NULL, };
-    virPCIDevicePtr pci_device_ptr = NULL;
     struct genlmsghdr* gmsgh = NULL;
     const char *pci_name;
     int is_vf = -1;
-    int ret = -1;
     uint32_t family_id;
+    VIR_AUTOPTR(virNlMsg) nl_msg = NULL;
+    VIR_AUTOPTR(virPCIDevice) pci_device_ptr = NULL;
     VIR_AUTOFREE(struct nlmsghdr *) resp = NULL;
     VIR_AUTOFREE(char *) pfname = NULL;
 
     if ((family_id = virNetDevGetFamilyId(DEVLINK_GENL_NAME)) <= 0)
-        return ret;
+        return -1;
 
     if ((is_vf = virNetDevIsVirtualFunction(ifname)) < 0)
-        return ret;
+        return -1;
 
     if (is_vf == 1 && virNetDevGetPhysicalFunction(ifname, &pfname) < 0)
-        goto cleanup;
+        return -1;
 
     pci_device_ptr = pfname ? virNetDevGetPCIDevice(pfname) :
                               virNetDevGetPCIDevice(ifname);
     /* No PCI device, then no feature bit to check/add */
-    if (pci_device_ptr == NULL) {
-        ret = 0;
-        goto cleanup;
-    }
+    if (pci_device_ptr == NULL)
+        return 0;
 
     if (!(nl_msg = nlmsg_alloc_simple(family_id,
                                       NLM_F_REQUEST | NLM_F_ACK))) {
         virReportOOMError();
-        goto cleanup;
+        return -1;
     }
 
     if (!(gmsgh = virNetDevPutExtraHeader(nlmsg_hdr(nl_msg), sizeof(struct genlmsghdr))))
-        goto cleanup;
+        return -1;
 
     gmsgh->cmd = DEVLINK_CMD_ESWITCH_GET;
     gmsgh->version = DEVLINK_GENL_VERSION;
@@ -3220,16 +3186,16 @@ virNetDevSwitchdevFeature(const char *ifname,
         nla_put(nl_msg, DEVLINK_ATTR_DEV_NAME, strlen(pci_name)+1, pci_name) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("allocated netlink buffer is too small"));
-        goto cleanup;
+        return -1;
     }
 
     if (virNetlinkCommand(nl_msg, &resp, &recvbuflen, 0, 0, NETLINK_GENERIC, 0) < 0)
-        goto cleanup;
+        return -1;
 
     if (nlmsg_parse(resp, sizeof(struct genlmsghdr), tb, DEVLINK_ATTR_MAX, NULL) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("malformed netlink response message"));
-        goto cleanup;
+        return -1;
     }
 
     if (tb[DEVLINK_ATTR_ESWITCH_MODE] &&
@@ -3237,12 +3203,7 @@ virNetDevSwitchdevFeature(const char *ifname,
         ignore_value(virBitmapSetBit(*out, VIR_NET_DEV_FEAT_SWITCHDEV));
     }
 
-    ret = 0;
-
- cleanup:
-    nlmsg_free(nl_msg);
-    virPCIDeviceFree(pci_device_ptr);
-    return ret;
+    return 0;
 }
 # else
 static int
@@ -3497,8 +3458,7 @@ int virNetDevSetCoalesce(const char *ifname,
 int
 virNetDevRunEthernetScript(const char *ifname, const char *script)
 {
-    virCommandPtr cmd;
-    int ret;
+    VIR_AUTOPTR(virCommand) cmd = NULL;
 
     /* Not a bug! Previously we did accept script="" as a NO-OP. */
     if (STREQ(script, ""))
@@ -3512,8 +3472,5 @@ virNetDevRunEthernetScript(const char *ifname, const char *script)
 #endif
     virCommandAddEnvPassCommon(cmd);
 
-    ret = virCommandRun(cmd, NULL);
-
-    virCommandFree(cmd);
-    return ret;
+    return virCommandRun(cmd, NULL);
 }
