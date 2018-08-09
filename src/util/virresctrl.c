@@ -123,6 +123,11 @@ struct _virResctrlInfo {
     size_t nlevels;
 };
 
+static void
+virResctrlInfoPerTypeFree(virResctrlInfoPerTypePtr type)
+{
+    VIR_FREE(type);
+}
 
 static void
 virResctrlInfoDispose(void *obj)
