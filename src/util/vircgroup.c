@@ -163,8 +163,8 @@ virCgroupPartitionNeedsEscaping(const char *path)
 {
     FILE *fp = NULL;
     int ret = 0;
-    VIR_AUTOFREE(char *) line = NULL;
     size_t buflen;
+    VIR_AUTOFREE(char *) line = NULL;
 
     /* If it starts with 'cgroup.' or a '_' of any
      * of the controller names from /proc/cgroups,
@@ -774,8 +774,8 @@ virCgroupSetValueStr(virCgroupPtr group,
                      const char *key,
                      const char *value)
 {
-    VIR_AUTOFREE(char *) keypath = NULL;
     char *tmp = NULL;
+    VIR_AUTOFREE(char *) keypath = NULL;
 
     if (virCgroupPathOfController(group, controller, key, &keypath) < 0)
         return -1;
@@ -804,8 +804,8 @@ virCgroupGetValueStr(virCgroupPtr group,
                      const char *key,
                      char **value)
 {
-    VIR_AUTOFREE(char *) keypath = NULL;
     int rc;
+    VIR_AUTOFREE(char *) keypath = NULL;
 
     *value = NULL;
 
@@ -835,10 +835,10 @@ virCgroupGetValueForBlkDev(virCgroupPtr group,
                            const char *path,
                            char **value)
 {
-    VIR_AUTOFREE(char *) prefix = NULL;
-    VIR_AUTOFREE(char *) str = NULL;
     char **lines = NULL;
     int ret = -1;
+    VIR_AUTOFREE(char *) prefix = NULL;
+    VIR_AUTOFREE(char *) str = NULL;
 
     if (virCgroupGetValueStr(group, controller, key, &str) < 0)
         goto error;
@@ -1279,9 +1279,10 @@ virCgroupNewPartition(const char *path,
                       virCgroupPtr *group)
 {
     int ret = -1;
+    virCgroupPtr parent = NULL;
     VIR_AUTOFREE(char *) parentPath = NULL;
     VIR_AUTOFREE(char *) newPath = NULL;
-    virCgroupPtr parent = NULL;
+
     VIR_DEBUG("path=%s create=%d controllers=%x",
               path, create, controllers);
 
@@ -1410,8 +1411,8 @@ virCgroupNewThread(virCgroupPtr domain,
                    bool create,
                    virCgroupPtr *group)
 {
-    VIR_AUTOFREE(char *) name = NULL;
     int controllers;
+    VIR_AUTOFREE(char *) name = NULL;
 
     switch (nameval) {
     case VIR_CGROUP_THREAD_VCPU:
@@ -1506,8 +1507,8 @@ virCgroupNewMachineSystemd(const char *name,
     int ret = -1;
     int rv;
     virCgroupPtr init, parent = NULL;
-    VIR_AUTOFREE(char *) path = NULL;
     char *offset;
+    VIR_AUTOFREE(char *) path = NULL;
 
     VIR_DEBUG("Trying to setup machine '%s' via systemd", name);
     if ((rv = virSystemdCreateMachine(name,
@@ -1822,11 +1823,11 @@ virCgroupGetBlkioIoServiced(virCgroupPtr group,
                             long long *requests_write)
 {
     long long stats_val;
-    VIR_AUTOFREE(char *) str1 = NULL;
-    VIR_AUTOFREE(char *) str2 = NULL;
     char *p1 = NULL;
     char *p2 = NULL;
     size_t i;
+    VIR_AUTOFREE(char *) str1 = NULL;
+    VIR_AUTOFREE(char *) str2 = NULL;
 
     const char *value_names[] = {
         "Read ",
@@ -1928,12 +1929,12 @@ virCgroupGetBlkioIoDeviceServiced(virCgroupPtr group,
                                   long long *requests_read,
                                   long long *requests_write)
 {
-    VIR_AUTOFREE(char *) str1 = NULL;
-    VIR_AUTOFREE(char *) str2 = NULL;
-    VIR_AUTOFREE(char *) str3 = NULL;
     char *p1 = NULL;
     char *p2 = NULL;
     size_t i;
+    VIR_AUTOFREE(char *) str1 = NULL;
+    VIR_AUTOFREE(char *) str2 = NULL;
+    VIR_AUTOFREE(char *) str3 = NULL;
 
     const char *value_names[] = {
         "Read ",
@@ -2998,6 +2999,7 @@ virCgroupGetPercpuVcpuSum(virCgroupPtr group,
 
     while ((i = virBitmapNextSetBit(guestvcpus, i)) >= 0) {
         VIR_AUTOFREE(char *) buf = NULL;
+
         char *pos;
         unsigned long long tmp;
         ssize_t j;
@@ -3063,12 +3065,12 @@ virCgroupGetPercpuStats(virCgroupPtr group,
     size_t i;
     int need_cpus, total_cpus;
     char *pos;
-    VIR_AUTOFREE(char *) buf = NULL;
-    VIR_AUTOFREE(unsigned long long *) sum_cpu_time = NULL;
     virTypedParameterPtr ent;
     int param_idx;
     unsigned long long cpu_time;
     virBitmapPtr cpumap = NULL;
+    VIR_AUTOFREE(char *) buf = NULL;
+    VIR_AUTOFREE(unsigned long long *) sum_cpu_time = NULL;
 
     /* return the number of supported params */
     if (nparams == 0 && ncpus != 0) {
@@ -3407,9 +3409,10 @@ virCgroupKillInternal(virCgroupPtr group, int signum, virHashTablePtr pids)
 {
     int ret = -1;
     bool killedAny = false;
-    VIR_AUTOFREE(char *) keypath = NULL;
     bool done = false;
     FILE *fp = NULL;
+    VIR_AUTOFREE(char *) keypath = NULL;
+
     VIR_DEBUG("group=%p path=%s signum=%d pids=%p",
               group, group->path, signum, pids);
 
@@ -3535,11 +3538,12 @@ virCgroupKillRecursiveInternal(virCgroupPtr group,
     int ret = -1;
     int rc;
     bool killedAny = false;
-    VIR_AUTOFREE(char *) keypath = NULL;
     DIR *dp = NULL;
     virCgroupPtr subgroup = NULL;
     struct dirent *ent;
     int direrr;
+    VIR_AUTOFREE(char *) keypath = NULL;
+
     VIR_DEBUG("group=%p path=%s signum=%d pids=%p",
               group, group->path, signum, pids);
 
@@ -3702,9 +3706,9 @@ int
 virCgroupGetCpuacctStat(virCgroupPtr group, unsigned long long *user,
                         unsigned long long *sys)
 {
-    VIR_AUTOFREE(char *) str = NULL;
     char *p;
     static double scale = -1.0;
+    VIR_AUTOFREE(char *) str = NULL;
 
     if (virCgroupGetValueStr(group, VIR_CGROUP_CONTROLLER_CPUACCT,
                              "cpuacct.stat", &str) < 0)
@@ -3798,6 +3802,7 @@ virCgroupBindMount(virCgroupPtr group, const char *oldroot,
 
         if (!virFileExists(group->controllers[i].mountPoint)) {
             VIR_AUTOFREE(char *) src = NULL;
+
             if (virAsprintf(&src, "%s%s",
                             oldroot,
                             group->controllers[i].mountPoint) < 0)
@@ -3851,8 +3856,8 @@ int virCgroupSetOwner(virCgroupPtr cgroup,
     int direrr;
 
     for (i = 0; i < VIR_CGROUP_CONTROLLER_LAST; i++) {
-        VIR_AUTOFREE(char *) base = NULL;
         struct dirent *de;
+        VIR_AUTOFREE(char *) base = NULL;
 
         if (!((1 << i) & controllers))
             continue;
