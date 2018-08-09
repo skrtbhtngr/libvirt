@@ -334,9 +334,9 @@ virResctrlGetInfo(virResctrlInfoPtr resctrl)
     int type = 0;
     struct dirent *ent = NULL;
     unsigned int level = 0;
-    virBitmapPtr tmp_map = NULL;
     virResctrlInfoPerLevelPtr i_level = NULL;
-    virResctrlInfoPerTypePtr i_type = NULL;
+    VIR_AUTOPTR(virBitmap) tmp_map = NULL;
+    VIR_AUTOPTR(virResctrlInfoPerType) i_type = NULL;
     VIR_AUTOFREE(char *) tmp_str = NULL;
 
     rv = virDirOpenIfExists(&dirp, SYSFS_RESCTRL_PATH "/info");
@@ -405,8 +405,6 @@ virResctrlGetInfo(virResctrlInfoPtr resctrl)
         }
 
         i_type->bits = virBitmapCountBits(tmp_map);
-        virBitmapFree(tmp_map);
-        tmp_map = NULL;
 
         rv = virFileReadValueUint(&i_type->min_cbm_bits,
                                   SYSFS_RESCTRL_PATH "/info/%s/min_cbm_bits",
@@ -450,7 +448,6 @@ virResctrlGetInfo(virResctrlInfoPtr resctrl)
     ret = 0;
  cleanup:
     VIR_DIR_CLOSE(dirp);
-    VIR_FREE(i_type);
     return ret;
 }
 
@@ -901,8 +898,7 @@ virResctrlAllocParseProcessCache(virResctrlInfoPtr resctrl,
 {
     char *tmp = strchr(cache, '=');
     unsigned int cache_id = 0;
-    virBitmapPtr mask = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virBitmap) mask = NULL;
 
     if (!tmp)
         return 0;
@@ -928,18 +924,15 @@ virResctrlAllocParseProcessCache(virResctrlInfoPtr resctrl,
                        _("Missing or inconsistent resctrl info for "
                          "level '%u' type '%s'"),
                        level, virCacheTypeToString(type));
-        goto cleanup;
+        return -1;
     }
 
     virBitmapShrink(mask, resctrl->levels[level]->types[type]->bits);
 
     if (virResctrlAllocUpdateMask(alloc, level, type, cache_id, mask) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    virBitmapFree(mask);
-    return ret;
+    return 0;
 }
 
 
@@ -948,13 +941,12 @@ virResctrlAllocParseProcessLine(virResctrlInfoPtr resctrl,
                                 virResctrlAllocPtr alloc,
                                 char *line)
 {
-    char **caches = NULL;
     char *tmp = NULL;
     unsigned int level = 0;
     int type = -1;
     size_t ncaches = 0;
     size_t i = 0;
-    int ret = -1;
+    VIR_AUTOPTR(virString) caches = NULL;
 
     /* For no reason there can be spaces */
     virSkipSpaces((const char **) &line);
@@ -992,13 +984,10 @@ virResctrlAllocParseProcessLine(virResctrlInfoPtr resctrl,
 
     for (i = 0; i < ncaches; i++) {
         if (virResctrlAllocParseProcessCache(resctrl, alloc, level, type, caches[i]) < 0)
-            goto cleanup;
+            return -1;
     }
 
-    ret = 0;
- cleanup:
-    virStringListFree(caches);
-    return ret;
+    return 0;
 }
 
 
@@ -1007,21 +996,17 @@ virResctrlAllocParse(virResctrlInfoPtr resctrl,
                      virResctrlAllocPtr alloc,
                      const char *schemata)
 {
-    char **lines = NULL;
     size_t nlines = 0;
     size_t i = 0;
-    int ret = -1;
+    VIR_AUTOPTR(virString) lines = NULL;
 
     lines = virStringSplitCount(schemata, "\n", 0, &nlines);
     for (i = 0; i < nlines; i++) {
         if (virResctrlAllocParseProcessLine(resctrl, alloc, lines[i]) < 0)
-            goto cleanup;
+            return -1;
     }
 
-    ret = 0;
- cleanup:
-    virStringListFree(lines);
-    return ret;
+    return 0;
 }
 
 
@@ -1116,7 +1101,7 @@ virResctrlAllocNewFromInfo(virResctrlInfoPtr info)
     size_t j = 0;
     size_t k = 0;
     virResctrlAllocPtr ret = virResctrlAllocNew();
-    virBitmapPtr mask = NULL;
+    VIR_AUTOPTR(virBitmap) mask = NULL;
 
     if (!ret)
         return NULL;
@@ -1137,6 +1122,7 @@ virResctrlAllocNewFromInfo(virResctrlInfoPtr info)
             mask = virBitmapNew(i_type->bits);
             if (!mask)
                 goto error;
+
             virBitmapSetAll(mask);
 
             for (k = 0; k <= i_type->max_cache_id; k++) {
@@ -1146,13 +1132,11 @@ virResctrlAllocNewFromInfo(virResctrlInfoPtr info)
         }
     }
 
- cleanup:
-    virBitmapFree(mask);
     return ret;
+
  error:
     virObjectUnref(ret);
-    ret = NULL;
-    goto cleanup;
+    return NULL;
 }
 
 /*
@@ -1247,14 +1231,13 @@ virResctrlAllocFindUnused(virResctrlAllocPtr alloc,
                           unsigned int cache)
 {
     unsigned long long *size = alloc->levels[level]->types[type]->sizes[cache];
-    virBitmapPtr a_mask = NULL;
     virBitmapPtr f_mask = NULL;
     unsigned long long need_bits;
     size_t i = 0;
     ssize_t pos = -1;
     ssize_t last_bits = 0;
     ssize_t last_pos = -1;
-    int ret = -1;
+    VIR_AUTOPTR(virBitmap) a_mask = NULL;
 
     if (!size)
         return 0;
@@ -1350,12 +1333,9 @@ virResctrlAllocFindUnused(virResctrlAllocPtr alloc,
         ignore_value(virBitmapSetBit(a_mask, i));
 
     if (virResctrlAllocUpdateMask(alloc, level, type, cache, a_mask) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
- cleanup:
-    virBitmapFree(a_mask);
-    return ret;
+    return 0;
 }
 
 
