@@ -27,6 +27,7 @@
 # include "viruuid.h"
 # include "virutil.h"
 # include "virmacaddr.h"
+# include "viralloc.h"
 
 # define LIBVIRT_IFLA_VF_PORT_PROFILE_MAX 40
 
@@ -112,5 +113,7 @@ int virNetDevVPortProfileDisassociate(const char *ifname,
     ATTRIBUTE_NONNULL(4) ATTRIBUTE_RETURN_CHECK;
 
 void virNetDevVPortProfileFree(virNetDevVPortProfilePtr profile);
+
+VIR_DEFINE_AUTOPTR_FUNC(virNetDevVPortProfile, virNetDevVPortProfileFree)
 
 #endif /* __VIR_NETDEV_VPORT_PROFILE_H__ */
