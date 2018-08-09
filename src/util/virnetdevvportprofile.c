@@ -446,6 +446,11 @@ int virNetDevVPortProfileMerge3(virNetDevVPortProfilePtr *result,
     return ret;
 }
 
+void
+virNetDevVPortProfileFree(virNetDevVPortProfilePtr profile)
+{
+    VIR_FREE(profile);
+}
 
 #if WITH_VIRTUALPORT
 

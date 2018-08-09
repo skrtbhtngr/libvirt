@@ -111,5 +111,6 @@ int virNetDevVPortProfileDisassociate(const char *ifname,
                                       virNetDevVPortProfileOp vmOp)
     ATTRIBUTE_NONNULL(4) ATTRIBUTE_RETURN_CHECK;
 
+void virNetDevVPortProfileFree(virNetDevVPortProfilePtr profile);
 
 #endif /* __VIR_NETDEV_VPORT_PROFILE_H__ */
