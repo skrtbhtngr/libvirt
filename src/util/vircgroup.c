@@ -835,27 +835,23 @@ virCgroupGetValueForBlkDev(virCgroupPtr group,
                            const char *path,
                            char **value)
 {
-    char **lines = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virString) lines = NULL;
     VIR_AUTOFREE(char *) prefix = NULL;
     VIR_AUTOFREE(char *) str = NULL;
 
     if (virCgroupGetValueStr(group, controller, key, &str) < 0)
-        goto error;
+        return -1;
 
     if (!(prefix = virCgroupGetBlockDevString(path)))
-        goto error;
+        return -1;
 
     if (!(lines = virStringSplit(str, "\n", -1)))
-        goto error;
+        return -1;
 
     if (VIR_STRDUP(*value, virStringListGetFirstWithPrefix(lines, prefix)) < 0)
-        goto error;
+        return -1;
 
-    ret = 0;
- error:
-    virStringListFree(lines);
-    return ret;
+    return 0;
 }
 
 
@@ -1218,12 +1214,11 @@ virCgroupAddTaskController(virCgroupPtr group, pid_t pid, int controller)
 static int
 virCgroupSetPartitionSuffix(const char *path, char **res)
 {
-    char **tokens;
+    VIR_AUTOPTR(virString) tokens = NULL;
     size_t i;
-    int ret = -1;
 
     if (!(tokens = virStringSplit(path, "/", 0)))
-        return ret;
+        return -1;
 
     for (i = 0; tokens[i] != NULL; i++) {
         /* Whitelist the 3 top level fixed dirs
@@ -1242,22 +1237,18 @@ virCgroupSetPartitionSuffix(const char *path, char **res)
             !strchr(tokens[i], '.')) {
             if (VIR_REALLOC_N(tokens[i],
                               strlen(tokens[i]) + strlen(".partition") + 1) < 0)
-                goto cleanup;
+                return -1;
             strcat(tokens[i], ".partition");
         }
 
         if (virCgroupPartitionEscape(&(tokens[i])) < 0)
-            goto cleanup;
+            return -1;
     }
 
     if (!(*res = virStringListJoin((const char **)tokens, "/")))
-        goto cleanup;
+        return -1;
 
-    ret = 0;
-
- cleanup:
-    virStringListFree(tokens);
-    return ret;
+    return 0;
 }
 
 
@@ -1580,13 +1571,11 @@ virCgroupNewMachineSystemd(const char *name,
     }
 
     if (virCgroupAddTask(*group, pidleader) < 0) {
-        virErrorPtr saved = virSaveLastError();
+        VIR_AUTOPTR(virError) saved = virSaveLastError();
         virCgroupRemove(*group);
         virCgroupFree(group);
-        if (saved) {
+        if (saved)
             virSetError(saved);
-            virFreeError(saved);
-        }
     }
 
     ret = 0;
@@ -1635,13 +1624,11 @@ virCgroupNewMachineManual(const char *name,
         goto cleanup;
 
     if (virCgroupAddTask(*group, pidleader) < 0) {
-        virErrorPtr saved = virSaveLastError();
+        VIR_AUTOPTR(virError) saved = virSaveLastError();
         virCgroupRemove(*group);
         virCgroupFree(group);
-        if (saved) {
+        if (saved)
             virSetError(saved);
-            virFreeError(saved);
-        }
     }
 
  done:
@@ -3061,14 +3048,13 @@ virCgroupGetPercpuStats(virCgroupPtr group,
                         unsigned int ncpus,
                         virBitmapPtr guestvcpus)
 {
-    int ret = -1;
     size_t i;
     int need_cpus, total_cpus;
     char *pos;
     virTypedParameterPtr ent;
     int param_idx;
     unsigned long long cpu_time;
-    virBitmapPtr cpumap = NULL;
+    VIR_AUTOPTR(virBitmap) cpumap = NULL;
     VIR_AUTOFREE(char *) buf = NULL;
     VIR_AUTOFREE(unsigned long long *) sum_cpu_time = NULL;
 
@@ -3087,21 +3073,20 @@ virCgroupGetPercpuStats(virCgroupPtr group,
     total_cpus = virBitmapSize(cpumap);
 
     /* return total number of cpus */
-    if (ncpus == 0) {
-        ret = total_cpus;
-        goto cleanup;
-    }
+    if (ncpus == 0)
+        return total_cpus;
 
     if (start_cpu >= total_cpus) {
         virReportError(VIR_ERR_INVALID_ARG,
                        _("start_cpu %d larger than maximum of %d"),
                        start_cpu, total_cpus - 1);
-        goto cleanup;
+        return -1;
     }
 
     /* we get percpu cputime accounting info. */
     if (virCgroupGetCpuacctPercpuUsage(group, &buf))
-        goto cleanup;
+        return -1;
+
     pos = buf;
 
     /* return percpu cputime in index 0 */
@@ -3116,14 +3101,14 @@ virCgroupGetPercpuStats(virCgroupPtr group,
         } else if (virStrToLong_ull(pos, &pos, 10, &cpu_time) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("cpuacct parse error"));
-            goto cleanup;
+            return -1;
         }
         if (i < start_cpu)
             continue;
         ent = &params[(i - start_cpu) * nparams + param_idx];
         if (virTypedParameterAssign(ent, VIR_DOMAIN_CPU_STATS_CPUTIME,
                                     VIR_TYPED_PARAM_ULLONG, cpu_time) < 0)
-            goto cleanup;
+            return -1;
     }
 
     /* return percpu vcputime in index 1 */
@@ -3131,10 +3116,10 @@ virCgroupGetPercpuStats(virCgroupPtr group,
 
     if (guestvcpus && param_idx < nparams) {
         if (VIR_ALLOC_N(sum_cpu_time, need_cpus) < 0)
-            goto cleanup;
+            return -1;
         if (virCgroupGetPercpuVcpuSum(group, guestvcpus, sum_cpu_time,
                                       need_cpus, cpumap) < 0)
-            goto cleanup;
+            return -1;
 
         for (i = start_cpu; i < need_cpus; i++) {
             if (virTypedParameterAssign(&params[(i - start_cpu) * nparams +
@@ -3142,17 +3127,13 @@ virCgroupGetPercpuStats(virCgroupPtr group,
                                         VIR_DOMAIN_CPU_STATS_VCPUTIME,
                                         VIR_TYPED_PARAM_ULLONG,
                                         sum_cpu_time[i]) < 0)
-                goto cleanup;
+                return -1;
         }
 
         param_idx++;
     }
 
-    ret = param_idx;
-
- cleanup:
-    virBitmapFree(cpumap);
-    return ret;
+    return param_idx;
 }
 
 
@@ -3509,23 +3490,18 @@ int
 virCgroupKill(virCgroupPtr group, int signum)
 {
     VIR_DEBUG("group=%p path=%s signum=%d", group, group->path, signum);
-    int ret;
     /* The 'tasks' file in cgroups can contain duplicated
      * pids, so we use a hash to track which we've already
      * killed.
      */
-    virHashTablePtr pids = virHashCreateFull(100,
+    VIR_AUTOPTR(virHashTable) pids = virHashCreateFull(100,
                                              NULL,
                                              virCgroupPidCode,
                                              virCgroupPidEqual,
                                              virCgroupPidCopy,
                                              NULL);
 
-    ret = virCgroupKillInternal(group, signum, pids);
-
-    virHashFree(pids);
-
-    return ret;
+    return virCgroupKillInternal(group, signum, pids);
 }
 
 
@@ -3601,20 +3577,15 @@ virCgroupKillRecursiveInternal(virCgroupPtr group,
 int
 virCgroupKillRecursive(virCgroupPtr group, int signum)
 {
-    int ret;
     VIR_DEBUG("group=%p path=%s signum=%d", group, group->path, signum);
-    virHashTablePtr pids = virHashCreateFull(100,
+    VIR_AUTOPTR(virHashTable) pids = virHashCreateFull(100,
                                              NULL,
                                              virCgroupPidCode,
                                              virCgroupPidEqual,
                                              virCgroupPidCopy,
                                              NULL);
 
-    ret = virCgroupKillRecursiveInternal(group, signum, pids, false);
-
-    virHashFree(pids);
-
-    return ret;
+    return virCgroupKillRecursiveInternal(group, signum, pids, false);
 }
 
 
