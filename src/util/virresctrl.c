@@ -129,6 +129,8 @@ virResctrlInfoPerTypeFree(virResctrlInfoPerTypePtr type)
     VIR_FREE(type);
 }
 
+VIR_DEFINE_AUTOPTR_FUNC(virResctrlInfoPerType, virResctrlInfoPerTypeFree)
+
 static void
 virResctrlInfoDispose(void *obj)
 {
