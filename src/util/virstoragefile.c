@@ -1118,7 +1118,8 @@ static virStorageSourcePtr
 virStorageFileMetadataNew(const char *path,
                           int format)
 {
-    virStorageSourcePtr ret = NULL;
+    virStorageSourcePtr tmp = NULL;
+    VIR_AUTOPTR(virStorageSource) ret = NULL;
 
     if (VIR_ALLOC(ret) < 0)
         return NULL;
@@ -1127,13 +1128,10 @@ virStorageFileMetadataNew(const char *path,
     ret->type = VIR_STORAGE_TYPE_FILE;
 
     if (VIR_STRDUP(ret->path, path) < 0)
-        goto error;
+        return NULL;
 
-    return ret;
-
- error:
-    virStorageSourceFree(ret);
-    return NULL;
+    VIR_STEAL_PTR(tmp, ret);
+    return tmp;
 }
 
 
@@ -1168,19 +1166,19 @@ virStorageFileGetMetadataFromBuf(const char *path,
 {
     virStorageSourcePtr ret = NULL;
     int dummy;
+    VIR_AUTOPTR(virStorageSource) tmp = NULL;
 
     if (!backingFormat)
         backingFormat = &dummy;
 
-    if (!(ret = virStorageFileMetadataNew(path, format)))
+    if (!(tmp = virStorageFileMetadataNew(path, format)))
         return NULL;
 
-    if (virStorageFileGetMetadataInternal(ret, buf, len,
-                                          backingFormat) < 0) {
-        virStorageSourceFree(ret);
+    if (virStorageFileGetMetadataInternal(tmp, buf, len,
+                                          backingFormat) < 0)
         return NULL;
-    }
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
 }
 
@@ -1206,10 +1204,10 @@ virStorageFileGetMetadataFromFD(const char *path,
 
 {
     virStorageSourcePtr ret = NULL;
-    virStorageSourcePtr meta = NULL;
     ssize_t len = VIR_STORAGE_MAX_HEADER;
     struct stat sb;
     int dummy;
+    VIR_AUTOPTR(virStorageSource) meta = NULL;
     VIR_AUTOFREE(char *) buf = NULL;
 
     if (!backingFormat)
@@ -1231,34 +1229,30 @@ virStorageFileGetMetadataFromFD(const char *path,
          * update the metadata.*/
         meta->type = VIR_STORAGE_TYPE_DIR;
         meta->format = VIR_STORAGE_FILE_DIR;
-        ret = meta;
-        meta = NULL;
-        goto cleanup;
+        VIR_STEAL_PTR(ret, meta);
+        return ret;
     }
 
     if (lseek(fd, 0, SEEK_SET) == (off_t)-1) {
         virReportSystemError(errno, _("cannot seek to start of '%s'"), meta->path);
-        goto cleanup;
+        return NULL;
     }
 
     if ((len = virFileReadHeaderFD(fd, len, &buf)) < 0) {
         virReportSystemError(errno, _("cannot read header '%s'"), meta->path);
-        goto cleanup;
+        return NULL;
     }
 
     if (virStorageFileGetMetadataInternal(meta, buf, len, backingFormat) < 0)
-        goto cleanup;
+        return NULL;
 
     if (S_ISREG(sb.st_mode))
         meta->type = VIR_STORAGE_TYPE_FILE;
     else if (S_ISBLK(sb.st_mode))
         meta->type = VIR_STORAGE_TYPE_BLOCK;
 
-    ret = meta;
-    meta = NULL;
+    VIR_STEAL_PTR(ret, meta);
 
- cleanup:
-    virStorageSourceFree(meta);
     return ret;
 }
 
@@ -1368,14 +1362,11 @@ int virStorageFileGetLVMKey(const char *path,
      *    06UgP5-2rhb-w3Bo-3mdR-WeoL-pytO-SAa2ky
      */
     int status;
-    virCommandPtr cmd = virCommandNewArgList(
-        LVS,
-        "--noheadings", "--unbuffered", "--nosuffix",
-        "--options", "uuid", path,
-        NULL
-        );
     int ret = -1;
-
+    VIR_AUTOPTR(virCommand) cmd = virCommandNewArgList(LVS,
+                                                       "--noheadings", "--unbuffered", "--nosuffix",
+                                                       "--options", "uuid", path,
+                                                       NULL);
     *key = NULL;
 
     /* Run the program and capture its output */
@@ -1410,8 +1401,6 @@ int virStorageFileGetLVMKey(const char *path,
     if (*key && STREQ(*key, ""))
         VIR_FREE(*key);
 
-    virCommandFree(cmd);
-
     return ret;
 }
 #else
@@ -1428,15 +1417,12 @@ int virStorageFileGetSCSIKey(const char *path,
                              char **key)
 {
     int status;
-    virCommandPtr cmd = virCommandNewArgList(
-        "/lib/udev/scsi_id",
-        "--replace-whitespace",
-        "--whitelisted",
-        "--device", path,
-        NULL
-        );
     int ret = -1;
-
+    VIR_AUTOPTR(virCommand) cmd = virCommandNewArgList("/lib/udev/scsi_id",
+                                                       "--replace-whitespace",
+                                                       "--whitelisted",
+                                                       "--device", path,
+                                                       NULL);
     *key = NULL;
 
     /* Run the program and capture its output */
@@ -1459,8 +1445,6 @@ int virStorageFileGetSCSIKey(const char *path,
  cleanup:
     if (*key && STREQ(*key, ""))
         VIR_FREE(*key);
-
-    virCommandFree(cmd);
 
     return ret;
 }
@@ -1773,26 +1757,24 @@ virStorageAuthDefFree(virStorageAuthDefPtr authdef)
 virStorageAuthDefPtr
 virStorageAuthDefCopy(const virStorageAuthDef *src)
 {
-    virStorageAuthDefPtr ret;
+    virStorageAuthDefPtr ret = NULL;
+    VIR_AUTOPTR(virStorageAuthDef) tmp = NULL;
 
-    if (VIR_ALLOC(ret) < 0)
+    if (VIR_ALLOC(tmp) < 0)
         return NULL;
 
-    if (VIR_STRDUP(ret->username, src->username) < 0)
-        goto error;
+    if (VIR_STRDUP(tmp->username, src->username) < 0)
+        return NULL;
     /* Not present for storage pool, but used for disk source */
-    if (VIR_STRDUP(ret->secrettype, src->secrettype) < 0)
-        goto error;
-    ret->authType = src->authType;
+    if (VIR_STRDUP(tmp->secrettype, src->secrettype) < 0)
+        return NULL;
+    tmp->authType = src->authType;
 
-    if (virSecretLookupDefCopy(&ret->seclookupdef, &src->seclookupdef) < 0)
-        goto error;
+    if (virSecretLookupDefCopy(&tmp->seclookupdef, &src->seclookupdef) < 0)
+        return NULL;
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
-
- error:
-    virStorageAuthDefFree(ret);
-    return NULL;
 }
 
 
@@ -1801,9 +1783,9 @@ virStorageAuthDefParse(xmlNodePtr node,
                        xmlXPathContextPtr ctxt)
 {
     xmlNodePtr saveNode = ctxt->node;
-    virStorageAuthDefPtr authdef = NULL;
     virStorageAuthDefPtr ret = NULL;
     xmlNodePtr secretnode = NULL;
+    VIR_AUTOPTR(virStorageAuthDef) authdef = NULL;
     VIR_AUTOFREE(char *) authtype = NULL;
 
     ctxt->node = node;
@@ -1851,7 +1833,6 @@ virStorageAuthDefParse(xmlNodePtr node,
     VIR_STEAL_PTR(ret, authdef);
 
  cleanup:
-    virStorageAuthDefFree(authdef);
     ctxt->node = saveNode;
 
     return ret;
@@ -1893,8 +1874,8 @@ virStoragePRDefFree(virStoragePRDefPtr prd)
 virStoragePRDefPtr
 virStoragePRDefParseXML(xmlXPathContextPtr ctxt)
 {
-    virStoragePRDefPtr prd;
     virStoragePRDefPtr ret = NULL;
+    VIR_AUTOPTR(virStoragePRDef) prd = NULL;
     VIR_AUTOFREE(char *) managed = NULL;
     VIR_AUTOFREE(char *) type = NULL;
     VIR_AUTOFREE(char *) path = NULL;
@@ -1906,13 +1887,13 @@ virStoragePRDefParseXML(xmlXPathContextPtr ctxt)
     if (!(managed = virXPathString("string(./@managed)", ctxt))) {
         virReportError(VIR_ERR_XML_ERROR, "%s",
                        _("missing @managed attribute for <reservations/>"));
-        goto cleanup;
+        return NULL;
     }
 
     if ((prd->managed = virTristateBoolTypeFromString(managed)) <= 0) {
         virReportError(VIR_ERR_XML_ERROR,
                        _("invalid value for 'managed': %s"), managed);
-        goto cleanup;
+        return NULL;
     }
 
     type = virXPathString("string(./source[1]/@type)", ctxt);
@@ -1923,19 +1904,19 @@ virStoragePRDefParseXML(xmlXPathContextPtr ctxt)
         if (!type) {
             virReportError(VIR_ERR_XML_ERROR, "%s",
                            _("missing connection type for <reservations/>"));
-            goto cleanup;
+            return NULL;
         }
 
         if (!path) {
             virReportError(VIR_ERR_XML_ERROR, "%s",
                            _("missing path for <reservations/>"));
-            goto cleanup;
+            return NULL;
         }
 
         if (!mode) {
             virReportError(VIR_ERR_XML_ERROR, "%s",
                            _("missing connection mode for <reservations/>"));
-            goto cleanup;
+            return NULL;
         }
     }
 
@@ -1943,21 +1924,19 @@ virStoragePRDefParseXML(xmlXPathContextPtr ctxt)
         virReportError(VIR_ERR_XML_ERROR,
                        _("unsupported connection type for <reservations/>: %s"),
                        type);
-        goto cleanup;
+        return NULL;
     }
 
     if (mode && STRNEQ(mode, "client")) {
         virReportError(VIR_ERR_XML_ERROR,
                        _("unsupported connection mode for <reservations/>: %s"),
                        mode);
-        goto cleanup;
+        return NULL;
     }
 
     VIR_STEAL_PTR(prd->path, path);
     VIR_STEAL_PTR(ret, prd);
 
- cleanup:
-    virStoragePRDefFree(prd);
     return ret;
 }
 
@@ -2026,8 +2005,8 @@ virStorageSourceChainHasManagedPR(virStorageSourcePtr src)
 static virStoragePRDefPtr
 virStoragePRDefCopy(virStoragePRDefPtr src)
 {
-    virStoragePRDefPtr copy = NULL;
     virStoragePRDefPtr ret = NULL;
+    VIR_AUTOPTR(virStoragePRDef) copy = NULL;
 
     if (VIR_ALLOC(copy) < 0)
         return NULL;
@@ -2036,12 +2015,10 @@ virStoragePRDefCopy(virStoragePRDefPtr src)
 
     if (VIR_STRDUP(copy->path, src->path) < 0 ||
         VIR_STRDUP(copy->mgralias, src->mgralias) < 0)
-        goto cleanup;
+        return NULL;
 
     VIR_STEAL_PTR(ret, copy);
 
- cleanup:
-    virStoragePRDefFree(copy);
     return ret;
 }
 
@@ -2117,48 +2094,44 @@ virStorageTimestampsCopy(const virStorageTimestamps *src)
 static virStoragePermsPtr
 virStoragePermsCopy(const virStoragePerms *src)
 {
-    virStoragePermsPtr ret;
+    virStoragePermsPtr ret = NULL;
+    VIR_AUTOPTR(virStoragePerms) tmp = NULL;
 
-    if (VIR_ALLOC(ret) < 0)
+    if (VIR_ALLOC(tmp) < 0)
         return NULL;
 
-    ret->mode = src->mode;
-    ret->uid = src->uid;
-    ret->gid = src->gid;
+    tmp->mode = src->mode;
+    tmp->uid = src->uid;
+    tmp->gid = src->gid;
 
-    if (VIR_STRDUP(ret->label, src->label) < 0)
-        goto error;
+    if (VIR_STRDUP(tmp->label, src->label) < 0)
+        return NULL;
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
-
- error:
-    virStoragePermsFree(ret);
-    return NULL;
 }
 
 
 static virStorageSourcePoolDefPtr
 virStorageSourcePoolDefCopy(const virStorageSourcePoolDef *src)
 {
-    virStorageSourcePoolDefPtr ret;
+    virStorageSourcePoolDefPtr ret = NULL;
+    VIR_AUTOPTR(virStorageSourcePoolDef) tmp = NULL;
 
-    if (VIR_ALLOC(ret) < 0)
+    if (VIR_ALLOC(tmp) < 0)
         return NULL;
 
-    ret->voltype = src->voltype;
-    ret->pooltype = src->pooltype;
-    ret->actualtype = src->actualtype;
-    ret->mode = src->mode;
+    tmp->voltype = src->voltype;
+    tmp->pooltype = src->pooltype;
+    tmp->actualtype = src->actualtype;
+    tmp->mode = src->mode;
 
-    if (VIR_STRDUP(ret->pool, src->pool) < 0 ||
-        VIR_STRDUP(ret->volume, src->volume) < 0)
-        goto error;
+    if (VIR_STRDUP(tmp->pool, src->pool) < 0 ||
+        VIR_STRDUP(tmp->volume, src->volume) < 0)
+        return NULL;
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
-
- error:
-    virStorageSourcePoolDefFree(ret);
-    return NULL;
 }
 
 
@@ -2176,98 +2149,96 @@ virStorageSourceCopy(const virStorageSource *src,
                      bool backingChain)
 {
     virStorageSourcePtr ret = NULL;
+    VIR_AUTOPTR(virStorageSource) tmp = NULL;
 
-    if (VIR_ALLOC(ret) < 0)
+    if (VIR_ALLOC(tmp) < 0)
         return NULL;
 
-    ret->id = src->id;
-    ret->type = src->type;
-    ret->protocol = src->protocol;
-    ret->format = src->format;
-    ret->capacity = src->capacity;
-    ret->allocation = src->allocation;
-    ret->has_allocation = src->has_allocation;
-    ret->physical = src->physical;
-    ret->readonly = src->readonly;
-    ret->shared = src->shared;
-    ret->haveTLS = src->haveTLS;
-    ret->tlsFromConfig = src->tlsFromConfig;
-    ret->detected = src->detected;
-    ret->debugLevel = src->debugLevel;
-    ret->debug = src->debug;
-    ret->iomode = src->iomode;
-    ret->cachemode = src->cachemode;
-    ret->discard = src->discard;
-    ret->detect_zeroes = src->detect_zeroes;
+    tmp->id = src->id;
+    tmp->type = src->type;
+    tmp->protocol = src->protocol;
+    tmp->format = src->format;
+    tmp->capacity = src->capacity;
+    tmp->allocation = src->allocation;
+    tmp->has_allocation = src->has_allocation;
+    tmp->physical = src->physical;
+    tmp->readonly = src->readonly;
+    tmp->shared = src->shared;
+    tmp->haveTLS = src->haveTLS;
+    tmp->tlsFromConfig = src->tlsFromConfig;
+    tmp->detected = src->detected;
+    tmp->debugLevel = src->debugLevel;
+    tmp->debug = src->debug;
+    tmp->iomode = src->iomode;
+    tmp->cachemode = src->cachemode;
+    tmp->discard = src->discard;
+    tmp->detect_zeroes = src->detect_zeroes;
 
     /* storage driver metadata are not copied */
-    ret->drv = NULL;
+    tmp->drv = NULL;
 
-    if (VIR_STRDUP(ret->path, src->path) < 0 ||
-        VIR_STRDUP(ret->volume, src->volume) < 0 ||
-        VIR_STRDUP(ret->relPath, src->relPath) < 0 ||
-        VIR_STRDUP(ret->backingStoreRaw, src->backingStoreRaw) < 0 ||
-        VIR_STRDUP(ret->snapshot, src->snapshot) < 0 ||
-        VIR_STRDUP(ret->configFile, src->configFile) < 0 ||
-        VIR_STRDUP(ret->nodeformat, src->nodeformat) < 0 ||
-        VIR_STRDUP(ret->nodestorage, src->nodestorage) < 0 ||
-        VIR_STRDUP(ret->compat, src->compat) < 0 ||
-        VIR_STRDUP(ret->tlsAlias, src->tlsAlias) < 0 ||
-        VIR_STRDUP(ret->tlsCertdir, src->tlsCertdir) < 0)
-        goto error;
+    if (VIR_STRDUP(tmp->path, src->path) < 0 ||
+        VIR_STRDUP(tmp->volume, src->volume) < 0 ||
+        VIR_STRDUP(tmp->relPath, src->relPath) < 0 ||
+        VIR_STRDUP(tmp->backingStoreRaw, src->backingStoreRaw) < 0 ||
+        VIR_STRDUP(tmp->snapshot, src->snapshot) < 0 ||
+        VIR_STRDUP(tmp->configFile, src->configFile) < 0 ||
+        VIR_STRDUP(tmp->nodeformat, src->nodeformat) < 0 ||
+        VIR_STRDUP(tmp->nodestorage, src->nodestorage) < 0 ||
+        VIR_STRDUP(tmp->compat, src->compat) < 0 ||
+        VIR_STRDUP(tmp->tlsAlias, src->tlsAlias) < 0 ||
+        VIR_STRDUP(tmp->tlsCertdir, src->tlsCertdir) < 0)
+        return NULL;
 
     if (src->nhosts) {
-        if (!(ret->hosts = virStorageNetHostDefCopy(src->nhosts, src->hosts)))
-            goto error;
+        if (!(tmp->hosts = virStorageNetHostDefCopy(src->nhosts, src->hosts)))
+            return NULL;
 
-        ret->nhosts = src->nhosts;
+        tmp->nhosts = src->nhosts;
     }
 
     if (src->srcpool &&
-        !(ret->srcpool = virStorageSourcePoolDefCopy(src->srcpool)))
-        goto error;
+        !(tmp->srcpool = virStorageSourcePoolDefCopy(src->srcpool)))
+        return NULL;
 
     if (src->features &&
-        !(ret->features = virBitmapNewCopy(src->features)))
-        goto error;
+        !(tmp->features = virBitmapNewCopy(src->features)))
+        return NULL;
 
     if (src->encryption &&
-        !(ret->encryption = virStorageEncryptionCopy(src->encryption)))
-        goto error;
+        !(tmp->encryption = virStorageEncryptionCopy(src->encryption)))
+        return NULL;
 
     if (src->perms &&
-        !(ret->perms = virStoragePermsCopy(src->perms)))
-        goto error;
+        !(tmp->perms = virStoragePermsCopy(src->perms)))
+        return NULL;
 
     if (src->timestamps &&
-        !(ret->timestamps = virStorageTimestampsCopy(src->timestamps)))
-        goto error;
+        !(tmp->timestamps = virStorageTimestampsCopy(src->timestamps)))
+        return NULL;
 
-    if (virStorageSourceSeclabelsCopy(ret, src) < 0)
-        goto error;
+    if (virStorageSourceSeclabelsCopy(tmp, src) < 0)
+        return NULL;
 
     if (src->auth &&
-        !(ret->auth = virStorageAuthDefCopy(src->auth)))
-        goto error;
+        !(tmp->auth = virStorageAuthDefCopy(src->auth)))
+        return NULL;
 
     if (src->pr &&
-        !(ret->pr = virStoragePRDefCopy(src->pr)))
-        goto error;
+        !(tmp->pr = virStoragePRDefCopy(src->pr)))
+        return NULL;
 
     if (virStorageSourceInitiatorCopy(&ret->initiator, &src->initiator))
-        goto error;
+        return NULL;
 
     if (backingChain && src->backingStore) {
-        if (!(ret->backingStore = virStorageSourceCopy(src->backingStore,
+        if (!(tmp->backingStore = virStorageSourceCopy(src->backingStore,
                                                        true)))
-            goto error;
+            return NULL;
     }
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
-
- error:
-    virStorageSourceFree(ret);
-    return NULL;
 }
 
 
@@ -2509,54 +2480,52 @@ static virStorageSourcePtr
 virStorageSourceNewFromBackingRelative(virStorageSourcePtr parent,
                                        const char *rel)
 {
-    virStorageSourcePtr ret;
+    virStorageSourcePtr ret = NULL;
+    VIR_AUTOPTR(virStorageSource) tmp = NULL;
     VIR_AUTOFREE(char *) dirname = NULL;
 
-    if (VIR_ALLOC(ret) < 0)
+    if (VIR_ALLOC(tmp) < 0)
         return NULL;
 
     /* store relative name */
-    if (VIR_STRDUP(ret->relPath, parent->backingStoreRaw) < 0)
-        goto error;
+    if (VIR_STRDUP(tmp->relPath, parent->backingStoreRaw) < 0)
+        return NULL;
 
     if (!(dirname = mdir_name(parent->path))) {
         virReportOOMError();
-        goto error;
+        return NULL;
     }
 
     if (STRNEQ(dirname, "/")) {
-        if (virAsprintf(&ret->path, "%s/%s", dirname, rel) < 0)
-            goto error;
+        if (virAsprintf(&tmp->path, "%s/%s", dirname, rel) < 0)
+            return NULL;
     } else {
-        if (virAsprintf(&ret->path, "/%s", rel) < 0)
-            goto error;
+        if (virAsprintf(&tmp->path, "/%s", rel) < 0)
+            return NULL;
     }
 
     if (virStorageSourceGetActualType(parent) == VIR_STORAGE_TYPE_NETWORK) {
-        ret->type = VIR_STORAGE_TYPE_NETWORK;
+        tmp->type = VIR_STORAGE_TYPE_NETWORK;
 
         /* copy the host network part */
-        ret->protocol = parent->protocol;
+        tmp->protocol = parent->protocol;
         if (parent->nhosts) {
-            if (!(ret->hosts = virStorageNetHostDefCopy(parent->nhosts,
+            if (!(tmp->hosts = virStorageNetHostDefCopy(parent->nhosts,
                                                         parent->hosts)))
-                goto error;
+                return NULL;
 
-            ret->nhosts = parent->nhosts;
+            tmp->nhosts = parent->nhosts;
         }
 
-        if (VIR_STRDUP(ret->volume, parent->volume) < 0)
-            goto error;
+        if (VIR_STRDUP(tmp->volume, parent->volume) < 0)
+            return NULL;
     } else {
         /* set the type to _FILE, the caller shall update it to the actual type */
-        ret->type = VIR_STORAGE_TYPE_FILE;
+        tmp->type = VIR_STORAGE_TYPE_FILE;
     }
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
-
- error:
-    virStorageSourceFree(ret);
-    return NULL;
 }
 
 
@@ -2564,31 +2533,30 @@ static int
 virStorageSourceParseBackingURI(virStorageSourcePtr src,
                                 const char *path)
 {
-    virURIPtr uri = NULL;
-    char **scheme = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virURI) uri = NULL;
+    VIR_AUTOPTR(virString) scheme = NULL;
 
     if (!(uri = virURIParse(path))) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("failed to parse backing file location '%s'"),
                        path);
-        goto cleanup;
+        return -1;
     }
 
     if (VIR_ALLOC(src->hosts) < 0)
-        goto cleanup;
+        return -1;
 
     src->nhosts = 1;
 
     if (!(scheme = virStringSplit(uri->scheme, "+", 2)))
-        goto cleanup;
+        return -1;
 
     if (!scheme[0] ||
         (src->protocol = virStorageNetProtocolTypeFromString(scheme[0])) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("invalid backing protocol '%s'"),
                        NULLSTR(scheme[0]));
-        goto cleanup;
+        return -1;
     }
 
     if (scheme[1] &&
@@ -2596,13 +2564,13 @@ virStorageSourceParseBackingURI(virStorageSourcePtr src,
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("invalid protocol transport type '%s'"),
                        scheme[1]);
-        goto cleanup;
+        return -1;
     }
 
     /* handle socket stored as a query */
     if (uri->query) {
         if (VIR_STRDUP(src->hosts->socket, STRSKIP(uri->query, "socket=")) < 0)
-            goto cleanup;
+            return -1;
     }
 
     /* XXX We currently don't support auth, so don't bother parsing it */
@@ -2611,7 +2579,7 @@ virStorageSourceParseBackingURI(virStorageSourcePtr src,
     if (uri->path &&
         VIR_STRDUP(src->path,
                    *uri->path == '/' ? uri->path + 1 : uri->path) < 0)
-        goto cleanup;
+        return -1;
 
     if (src->protocol == VIR_STORAGE_NET_PROTOCOL_GLUSTER) {
         char *tmp;
@@ -2619,7 +2587,7 @@ virStorageSourceParseBackingURI(virStorageSourcePtr src,
         if (!src->path) {
             virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
                            _("missing volume name and path for gluster volume"));
-            goto cleanup;
+            return -1;
         }
 
         if (!(tmp = strchr(src->path, '/')) ||
@@ -2627,13 +2595,13 @@ virStorageSourceParseBackingURI(virStorageSourcePtr src,
             virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                            _("missing volume name or file name in "
                              "gluster source path '%s'"), src->path);
-            goto cleanup;
+            return -1;
         }
 
         src->volume = src->path;
 
         if (VIR_STRDUP(src->path, tmp + 1) < 0)
-            goto cleanup;
+            return -1;
 
         tmp[0] = '\0';
     }
@@ -2641,14 +2609,9 @@ virStorageSourceParseBackingURI(virStorageSourcePtr src,
     src->hosts->port = uri->port;
 
     if (VIR_STRDUP(src->hosts->name, uri->server) < 0)
-        goto cleanup;
+        return -1;
 
-    ret = 0;
-
- cleanup:
-    virURIFree(uri);
-    virStringListFree(scheme);
-    return ret;
+    return 0;
 }
 
 
@@ -2658,7 +2621,7 @@ virStorageSourceRBDAddHost(virStorageSourcePtr src,
 {
     char *port;
     size_t skip;
-    char **parts;
+    VIR_AUTOPTR(virString) parts = NULL;
 
     if (VIR_EXPAND_N(src->hosts, src->nhosts, 1) < 0)
         return -1;
@@ -2683,7 +2646,7 @@ virStorageSourceRBDAddHost(virStorageSourcePtr src,
     if (!parts)
         goto error;
     src->hosts[src->nhosts-1].name = virStringListJoin((const char **)parts, ":");
-    virStringListFree(parts);
+
     if (!src->hosts[src->nhosts-1].name)
         goto error;
 
@@ -2705,7 +2668,7 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
     char *p;
     char *e;
     char *next;
-    virStorageAuthDefPtr authdef = NULL;
+    VIR_AUTOPTR(virStorageAuthDef) authdef = NULL;
     VIR_AUTOFREE(char *) options = NULL;
 
     /* optionally skip the "rbd:" prefix if provided */
@@ -2713,19 +2676,19 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
         rbdstr += strlen("rbd:");
 
     if (VIR_STRDUP(src->path, rbdstr) < 0)
-        goto error;
+        return -1;
 
     p = strchr(src->path, ':');
     if (p) {
         if (VIR_STRDUP(options, p + 1) < 0)
-            goto error;
+            return -1;
         *p = '\0';
     }
 
     /* snapshot name */
     if ((p = strchr(src->path, '@'))) {
         if (VIR_STRDUP(src->snapshot, p + 1) < 0)
-            goto error;
+            return -1;
         *p = '\0';
     }
 
@@ -2733,7 +2696,7 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
     if ((p = strchr(src->path, '/'))) {
         VIR_STEAL_PTR(src->volume, src->path);
         if (VIR_STRDUP(src->path, p + 1) < 0)
-            goto error;
+            return -1;
         *p = '\0';
     }
 
@@ -2761,14 +2724,14 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
         if (STRPREFIX(p, "id=")) {
             /* formulate authdef for src->auth */
             if (VIR_ALLOC(authdef) < 0)
-                goto error;
+                return -1;
 
             if (VIR_STRDUP(authdef->username, p + strlen("id=")) < 0)
-                goto error;
+                return -1;
 
             if (VIR_STRDUP(authdef->secrettype,
                            virSecretUsageTypeToString(VIR_SECRET_USAGE_TYPE_CEPH)) < 0)
-                goto error;
+                return -1;
             src->auth = authdef;
             src->authInherited = true;
             authdef = NULL;
@@ -2793,7 +2756,7 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
                 }
 
                 if (virStorageSourceRBDAddHost(src, h) < 0)
-                    goto error;
+                    return -1;
 
                 h = sep;
             }
@@ -2801,15 +2764,11 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
 
         if (STRPREFIX(p, "conf=") &&
             VIR_STRDUP(src->configFile, p + strlen("conf=")) < 0)
-            goto error;
+            return -1;
 
         p = next;
     }
     return 0;
-
- error:
-    virStorageAuthDefFree(authdef);
-    return -1;
 }
 
 
@@ -2817,16 +2776,15 @@ static int
 virStorageSourceParseNBDColonString(const char *nbdstr,
                                     virStorageSourcePtr src)
 {
-    char **backing = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virString) backing = NULL;
 
     if (!(backing = virStringSplit(nbdstr, ":", 0)))
-        goto cleanup;
+        return -1;
 
     /* we know that backing[0] now equals to "nbd" */
 
     if (VIR_ALLOC_N(src->hosts, 1) < 0)
-        goto cleanup;
+        return -1;
 
     src->nhosts = 1;
     src->hosts->transport = VIR_STORAGE_NET_HOST_TRANS_TCP;
@@ -2839,44 +2797,39 @@ virStorageSourceParseNBDColonString(const char *nbdstr,
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("missing remote information in '%s' for protocol nbd"),
                        nbdstr);
-        goto cleanup;
+        return -1;
     } else if (STREQ(backing[1], "unix")) {
         if (!backing[2]) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("missing unix socket path in nbd backing string %s"),
                            nbdstr);
-            goto cleanup;
+            return -1;
         }
 
         if (VIR_STRDUP(src->hosts->socket, backing[2]) < 0)
-            goto cleanup;
+            return -1;
 
    } else {
         if (VIR_STRDUP(src->hosts->name, backing[1]) < 0)
-            goto cleanup;
+            return -1;
 
         if (!backing[2]) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("missing port in nbd string '%s'"),
                            nbdstr);
-            goto cleanup;
+            return -1;
         }
 
         if (virStringParsePort(backing[2], &src->hosts->port) < 0)
-            goto cleanup;
+            return -1;
     }
 
     if (backing[3] && STRPREFIX(backing[3], "exportname=")) {
         if (VIR_STRDUP(src->path, backing[3] + strlen("exportname=")) < 0)
-            goto cleanup;
+            return -1;
     }
 
-    ret = 0;
-
- cleanup:
-    virStringListFree(backing);
-
-    return ret;
+    return 0;
 }
 
 
@@ -3486,22 +3439,21 @@ static int
 virStorageSourceParseBackingJSONInternal(virStorageSourcePtr src,
                                          virJSONValuePtr json)
 {
-    virJSONValuePtr deflattened = NULL;
     virJSONValuePtr file;
     const char *drvname;
     size_t i;
-    int ret = -1;
+    VIR_AUTOPTR(virJSONValue) deflattened = NULL;
     VIR_AUTOFREE(char *) str = NULL;
 
     if (!(deflattened = virJSONValueObjectDeflatten(json)))
-        goto cleanup;
+        return -1;
 
     if (!(file = virJSONValueObjectGetObject(deflattened, "file"))) {
         str = virJSONValueToString(json, false);
         virReportError(VIR_ERR_INVALID_ARG,
                        _("JSON backing volume definition '%s' lacks 'file' object"),
                        NULLSTR(str));
-        goto cleanup;
+        return -1;
     }
 
     if (!(drvname = virJSONValueObjectGetString(file, "driver"))) {
@@ -3509,23 +3461,19 @@ virStorageSourceParseBackingJSONInternal(virStorageSourcePtr src,
         virReportError(VIR_ERR_INVALID_ARG,
                        _("JSON backing volume definition '%s' lacks driver name"),
                        NULLSTR(str));
-        goto cleanup;
+        return -1;
     }
 
     for (i = 0; i < ARRAY_CARDINALITY(jsonParsers); i++) {
-        if (STREQ(drvname, jsonParsers[i].drvname)) {
-            ret = jsonParsers[i].func(src, file, jsonParsers[i].opaque);
-            goto cleanup;
-        }
+        if (STREQ(drvname, jsonParsers[i].drvname))
+            return jsonParsers[i].func(src, file, jsonParsers[i].opaque);
     }
 
     virReportError(VIR_ERR_INTERNAL_ERROR,
                    _("missing parser implementation for JSON backing volume "
                      "driver '%s'"), drvname);
 
- cleanup:
-    virJSONValueFree(deflattened);
-    return ret;
+    return -1;
 }
 
 
@@ -3533,16 +3481,12 @@ static int
 virStorageSourceParseBackingJSON(virStorageSourcePtr src,
                                  const char *json)
 {
-    virJSONValuePtr root = NULL;
-    int ret = -1;
+    VIR_AUTOPTR(virJSONValue) root = NULL;
 
     if (!(root = virJSONValueFromString(json)))
         return -1;
 
-    ret = virStorageSourceParseBackingJSONInternal(src, root);
-
-    virJSONValueFree(root);
-    return ret;
+    return virStorageSourceParseBackingJSONInternal(src, root);
 }
 
 
@@ -3550,49 +3494,47 @@ virStorageSourcePtr
 virStorageSourceNewFromBackingAbsolute(const char *path)
 {
     const char *json;
-    virStorageSourcePtr ret;
+    virStorageSourcePtr ret = NULL;
     int rc;
+    VIR_AUTOPTR(virStorageSource) tmp = NULL;
 
-    if (VIR_ALLOC(ret) < 0)
+    if (VIR_ALLOC(tmp) < 0)
         return NULL;
 
     if (virStorageIsFile(path)) {
-        ret->type = VIR_STORAGE_TYPE_FILE;
+        tmp->type = VIR_STORAGE_TYPE_FILE;
 
-        if (VIR_STRDUP(ret->path, path) < 0)
-            goto error;
+        if (VIR_STRDUP(tmp->path, path) < 0)
+            return NULL;
     } else {
-        ret->type = VIR_STORAGE_TYPE_NETWORK;
+        tmp->type = VIR_STORAGE_TYPE_NETWORK;
 
         VIR_DEBUG("parsing backing store string: '%s'", path);
 
         /* handle URI formatted backing stores */
         if ((json = STRSKIP(path, "json:")))
-            rc = virStorageSourceParseBackingJSON(ret, json);
+            rc = virStorageSourceParseBackingJSON(tmp, json);
         else if (strstr(path, "://"))
-            rc = virStorageSourceParseBackingURI(ret, path);
+            rc = virStorageSourceParseBackingURI(tmp, path);
         else
-            rc = virStorageSourceParseBackingColon(ret, path);
+            rc = virStorageSourceParseBackingColon(tmp, path);
 
         if (rc < 0)
-            goto error;
+            return NULL;
 
-        virStorageSourceNetworkAssignDefaultPorts(ret);
+        virStorageSourceNetworkAssignDefaultPorts(tmp);
 
         /* Some of the legacy parsers parse authentication data since they are
          * also used in other places. For backing store detection the
          * authentication data would be invalid anyways, so we clear it */
-        if (ret->auth) {
-            virStorageAuthDefFree(ret->auth);
-            ret->auth = NULL;
+        if (tmp->auth) {
+            virStorageAuthDefFree(tmp->auth);
+            tmp->auth = NULL;
         }
     }
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
-
- error:
-    virStorageSourceFree(ret);
-    return NULL;
 }
 
 
@@ -3600,40 +3542,38 @@ virStorageSourcePtr
 virStorageSourceNewFromBacking(virStorageSourcePtr parent)
 {
     struct stat st;
-    virStorageSourcePtr ret;
+    virStorageSourcePtr ret = NULL;
+    VIR_AUTOPTR(virStorageSource) tmp = NULL;
 
     if (virStorageIsRelative(parent->backingStoreRaw))
-        ret = virStorageSourceNewFromBackingRelative(parent,
+        tmp = virStorageSourceNewFromBackingRelative(parent,
                                                      parent->backingStoreRaw);
     else
-        ret = virStorageSourceNewFromBackingAbsolute(parent->backingStoreRaw);
+        tmp = virStorageSourceNewFromBackingAbsolute(parent->backingStoreRaw);
 
-    if (ret) {
+    if (tmp) {
         /* possibly update local type */
-        if (ret->type == VIR_STORAGE_TYPE_FILE) {
-            if (stat(ret->path, &st) == 0) {
+        if (tmp->type == VIR_STORAGE_TYPE_FILE) {
+            if (stat(tmp->path, &st) == 0) {
                 if (S_ISDIR(st.st_mode)) {
-                    ret->type = VIR_STORAGE_TYPE_DIR;
-                    ret->format = VIR_STORAGE_FILE_DIR;
+                    tmp->type = VIR_STORAGE_TYPE_DIR;
+                    tmp->format = VIR_STORAGE_FILE_DIR;
                 } else if (S_ISBLK(st.st_mode)) {
-                    ret->type = VIR_STORAGE_TYPE_BLOCK;
+                    tmp->type = VIR_STORAGE_TYPE_BLOCK;
                 }
             }
         }
 
         /* copy parent's labelling and other top level stuff */
-        if (virStorageSourceInitChainElement(ret, parent, true) < 0)
-            goto error;
+        if (virStorageSourceInitChainElement(tmp, parent, true) < 0)
+            return NULL;
 
-        ret->readonly = true;
-        ret->detected = true;
+        tmp->readonly = true;
+        tmp->detected = true;
     }
 
+    VIR_STEAL_PTR(ret, tmp);
     return ret;
-
- error:
-    virStorageSourceFree(ret);
-    return NULL;
 }
 
 
@@ -3774,9 +3714,8 @@ virStorageSourceUpdateCapacity(virStorageSourcePtr src,
                                ssize_t len,
                                bool probe)
 {
-    int ret = -1;
-    virStorageSourcePtr meta = NULL;
     int format = src->format;
+    VIR_AUTOPTR(virStorageSource) meta = NULL;
 
     /* Raw files: capacity is physical size.  For all other files: if
      * the metadata has a capacity, use that, otherwise fall back to
@@ -3786,12 +3725,12 @@ virStorageSourceUpdateCapacity(virStorageSourcePtr src,
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("no disk format for %s and probing is disabled"),
                            src->path);
-            goto cleanup;
+            return -1;
         }
 
         if ((format = virStorageFileProbeFormatFromBuf(src->path,
                                                        buf, len)) < 0)
-            goto cleanup;
+            return -1;
 
         src->format = format;
     }
@@ -3804,17 +3743,13 @@ virStorageSourceUpdateCapacity(virStorageSourcePtr src,
         if (src->encryption && meta->encryption)
             src->encryption->payload_offset = meta->encryption->payload_offset;
     } else {
-        goto cleanup;
+        return -1;
     }
 
     if (src->encryption && src->encryption->payload_offset != -1)
         src->capacity -= src->encryption->payload_offset * 512;
 
-    ret = 0;
-
- cleanup:
-    virStorageSourceFree(meta);
-    return ret;
+    return 0;
 }
 
 
@@ -3887,7 +3822,6 @@ virStorageFileCanonicalizePath(const char *path,
                                virStorageFileSimplifyPathReadlinkCallback cb,
                                void *cbdata)
 {
-    virHashTablePtr cycle = NULL;
     bool beginSlash = false;
     bool beginDoubleSlash = false;
     char **components = NULL;
@@ -3896,6 +3830,7 @@ virStorageFileCanonicalizePath(const char *path,
     size_t j = 0;
     int rc;
     char *ret = NULL;
+    VIR_AUTOPTR(virHashTable) cycle = NULL;
 
     if (path[0] == '/') {
         beginSlash = true;
@@ -4020,7 +3955,6 @@ virStorageFileCanonicalizePath(const char *path,
                                                beginSlash, beginDoubleSlash);
 
  cleanup:
-    virHashFree(cycle);
     virStringListFreeCount(components, ncomponents);
 
     return ret;
@@ -4104,9 +4038,8 @@ virStorageFileGetRelativeBackingPath(virStorageSourcePtr top,
 int
 virStorageFileCheckCompat(const char *compat)
 {
-    char **version;
     unsigned int result;
-    int ret = -1;
+    VIR_AUTOPTR(virString) version = NULL;
 
     if (!compat)
         return 0;
@@ -4117,13 +4050,9 @@ virStorageFileCheckCompat(const char *compat)
         virStrToLong_ui(version[1], NULL, 10, &result) < 0) {
         virReportError(VIR_ERR_XML_ERROR, "%s",
                        _("forbidden characters in 'compat' attribute"));
-        goto cleanup;
+        return -1;
     }
-    ret = 0;
-
- cleanup:
-    virStringListFree(version);
-    return ret;
+    return 0;
 }
 
 
@@ -4752,9 +4681,9 @@ virStorageFileGetMetadataRecurse(virStorageSourcePtr src,
     int ret = -1;
     const char *uniqueName;
     ssize_t headerLen;
-    virStorageSourcePtr backingStore = NULL;
     int backingFormat;
     int rv;
+    VIR_AUTOPTR(virStorageSource) backingStore = NULL;
     VIR_AUTOFREE(char *) buf = NULL;
 
     VIR_DEBUG("path=%s format=%d uid=%u gid=%u",
@@ -4831,15 +4760,13 @@ virStorageFileGetMetadataRecurse(virStorageSourcePtr src,
             goto cleanup;
     }
 
-    src->backingStore = backingStore;
-    backingStore = NULL;
+    VIR_STEAL_PTR(src->backingStore, backingStore);
     ret = 0;
 
  cleanup:
     if (virStorageSourceHasBacking(src))
         src->backingStore->id = depth;
     virStorageFileDeinit(src);
-    virStorageSourceFree(backingStore);
     return ret;
 }
 
@@ -4873,9 +4800,8 @@ virStorageFileGetMetadata(virStorageSourcePtr src,
               src->path, src->format, (unsigned int)uid, (unsigned int)gid,
               report_broken);
 
-    virHashTablePtr cycle = NULL;
     virStorageType actualType = virStorageSourceGetActualType(src);
-    int ret = -1;
+    VIR_AUTOPTR(virHashTable) cycle = NULL;
 
     if (!(cycle = virHashCreate(5, NULL)))
         return -1;
@@ -4887,11 +4813,8 @@ virStorageFileGetMetadata(virStorageSourcePtr src,
             src->format = VIR_STORAGE_FILE_RAW;
     }
 
-    ret = virStorageFileGetMetadataRecurse(src, src, uid, gid,
+    return virStorageFileGetMetadataRecurse(src, src, uid, gid,
                                            report_broken, cycle, 1);
-
-    virHashFree(cycle);
-    return ret;
 }
 
 
@@ -4908,10 +4831,9 @@ int
 virStorageFileGetBackingStoreStr(virStorageSourcePtr src,
                                  char **backing)
 {
-    virStorageSourcePtr tmp = NULL;
     ssize_t headerLen;
-    int ret = -1;
     int rv;
+    VIR_AUTOPTR(virStorageSource) tmp = NULL;
     VIR_AUTOFREE(char *) buf = NULL;
 
     *backing = NULL;
@@ -4936,17 +4858,12 @@ virStorageFileGetBackingStoreStr(virStorageSourcePtr src,
     }
 
     if (!(tmp = virStorageSourceCopy(src, false)))
-        goto cleanup;
+        return -1;
 
     if (virStorageFileGetMetadataInternal(tmp, buf, headerLen, NULL) < 0)
-        goto cleanup;
+        return -1;
 
     VIR_STEAL_PTR(*backing, tmp->backingStoreRaw);
 
-    ret = 0;
-
- cleanup:
-    virStorageSourceFree(tmp);
-
-    return ret;
+    return 0;
 }
